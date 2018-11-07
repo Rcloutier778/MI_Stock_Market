@@ -84,8 +84,6 @@ graphPlots = True
 def main():
     # From the data intervals, concat the following together to use
     dataconcat = ['30min','15min']#,'5min','1min']#, '5min', '1min']
-    tpriceData={}
-    priceData={}
     if refreshData:
         #Get and save new data
         tpriceData = getPriceData()
@@ -94,213 +92,31 @@ def main():
             data.to_pickle("pickles/"+i+".pkl")
     else:
         #Use saved data
-        #priceData[f] = pd.read_pickle("./pickles/" + f)
-        for f in os.listdir("./pickles"):
-            tpriceData[f[:-4]] = pd.read_pickle("./pickles/"+f)
-        for index in indices:
-            data=pd.DataFrame()
-            for interval in dataconcat:
-                tdata = tpriceData[index+interval]
-                if data.empty:
-                    data=tdata
-                else:
-                    for i in tdata.index:
-                        if i in data.index:
-                            data=data[:list(data.index).index(i)+1]
-                            data = data.append(tdata[1:])
-                            break
-            priceData[index] = data
-        for stock in stocks:
-            data = pd.DataFrame()
-            for interval in dataconcat:
-                tdata = tpriceData[stock+interval]
-                if data.empty:
-                    data=tdata
-                else:
-                    for i in tdata.index:
-                        if i in data.index:
-                            data = data[:list(data.index).index(i) + 1]
-                            data=data.append(tdata[1:])
-                            break
-            priceData[stock]=data
-    trainPriceData(priceData)
-
-
-
-def trainPriceData(priceData):
+        priceData=readPriceData(dataconcat)
+        
     trainSVC(priceData)
-    #trainTensorFlow(priceData)
+    # trainTensorFlow(priceData)
     if graphPlots:
         plt.pause(0.001)
         plt.waitforbuttonpress()
-
-
-def tensorMulti(ndata,priceData):
-    ndata = d[0]
-    priceData = d[1]
-    data = priceData[ndata]
-
-    # data['Return'] = np.log(data['Close'] / data['Close'].shift(1)) * 100
-    # y=data['Return'].shift(-1)'
-    # Calculating future price bool difference
-    y = np.where(data['Close'].shift(-1) > data['Close'], 1, -1)
-    # y = np.where(data['Close'].shift(-1) - data['Close'] > 0.0, 1, -1)
-    # TODO try labelEncoder in scikit
-    # TODO try inverting all y values, compare to non inverted results, use best/most consistent/closest to return
-    # lab_enc =preprocessing.LabelEncoder()
-    # y = (lab_enc.fit_transform(data['Close'].shift(-1)/data['Close']))
-    # y = (((data['Close'].shift(-1) / data['Close']) - np.min(data['Close']))/(np.max(data['Close']) - np.min(data[
-    # 'Close'])))
-
-    data['Open-Close'] = data.Open - data.Close
-    data['High-Low'] = data.High - data.Low
-    X = data[['Close', 'Open-Close', 'High-Low']]
-    
-    split = int(split_percentage * len(data))
-    
-    # Train data set
-    X_train = X[:split]
-    y_train = y[:split]
-    
-    # Test data set
-    X_test = X[split:]
-    y_test = y[split:]
-
-    X = tf.placeholder(dtype=tf.float32, shape=[None, n_stocks])
-    Y = tf.placeholder(dtype=tf.float32, shape=[None])
-    
-    # Make Session
-    net = tf.Session()
-    # Run initializer
-    net.run(tf.global_variables_initializer())
-    
-    # Setup interactive plot
-    plt.ion()
-    fig = plt.figure()
-    ax1 = fig.add_subplot(111)
-    line1, = ax1.plot(y_test)
-    line2, = ax1.plot(y_test * 0.5)
-    plt.show()
-    
-    # Number of epochs and batch size
-    epochs = 10
-    batch_size = 256
-    n_stocks = 500
-    n_neurons_1 = 1024
-    n_neurons_2 = 512
-    n_neurons_3 = 256
-    n_neurons_4 = 128
-    n_target = 1
-    
-    
-    # Layer 1: Variables for hidden weights and biases
-    W_hidden_1 = tf.Variable(weight_initializer([n_stocks, n_neurons_1]))
-    bias_hidden_1 = tf.Variable(bias_initializer([n_neurons_1]))
-    # Layer 2: Variables for hidden weights and biases
-    W_hidden_2 = tf.Variable(weight_initializer([n_neurons_1, n_neurons_2]))
-    bias_hidden_2 = tf.Variable(bias_initializer([n_neurons_2]))
-    # Layer 3: Variables for hidden weights and biases
-    W_hidden_3 = tf.Variable(weight_initializer([n_neurons_2, n_neurons_3]))
-    bias_hidden_3 = tf.Variable(bias_initializer([n_neurons_3]))
-    # Layer 4: Variables for hidden weights and biases
-    W_hidden_4 = tf.Variable(weight_initializer([n_neurons_3, n_neurons_4]))
-    bias_hidden_4 = tf.Variable(bias_initializer([n_neurons_4]))
-
-    # Output layer: Variables for output weights and biases
-    W_out = tf.Variable(weight_initializer([n_neurons_4, n_target]))
-    bias_out = tf.Variable(bias_initializer([n_target]))
-    hidden_1 = tf.nn.relu(tf.add(tf.matmul(X, W_hidden_1), bias_hidden_1))
-    hidden_2 = tf.nn.relu(tf.add(tf.matmul(hidden_1, W_hidden_2), bias_hidden_2))
-    hidden_3 = tf.nn.relu(tf.add(tf.matmul(hidden_2, W_hidden_3), bias_hidden_3))
-    hidden_4 = tf.nn.relu(tf.add(tf.matmul(hidden_3, W_hidden_4), bias_hidden_4))
-
-    out = tf.transpose(tf.add(tf.matmul(hidden_4, W_out), bias_out))
-
-    mse = tf.reduce_mean(tf.squared_difference(out, Y))
-
-    opt = tf.train.AdamOptimizer().minimize(mse)
-
-
-    for e in range(epochs):
-        
-        # Shuffle training data
-        shuffle_indices = np.random.permutation(np.arange(len(y_train)))
-        X_train = X_train[shuffle_indices]
-        y_train = y_train[shuffle_indices]
-        
-        # Minibatch training
-        for i in range(0, len(y_train) // batch_size):
-            start = i * batch_size
-            batch_x = X_train[start:start + batch_size]
-            batch_y = y_train[start:start + batch_size]
-            # Run optimizer with batch
-            net.run(opt, feed_dict={X: batch_x, Y: batch_y})
-            
-            # Show progress
-            if np.mod(i, 5) == 0:
-                # Prediction
-                pred = net.run(out, feed_dict={X: X_test})
-                line2.set_ydata(pred)
-                plt.title('Epoch ' + str(e) + ', Batch ' + str(i))
-                file_name = 'img/epoch_' + str(e) + '_batch_' + str(i) + '.jpg'
-                plt.savefig(file_name)
-                plt.pause(0.01)
-    # Print final MSE after Training
-    mse_final = net.run(mse, feed_dict={X: X_test, Y: y_test})
-    print(mse_final)
-    
-    
-    
-    
-
-
-def trainTensorFlow(priceData):
-    accuracies = []
-    results=[]
-    for ndata in priceData:
-        results.append(tensorMulti(ndata, priceData))
-    for i in results:
-        accuracies.append(i[0])
-        priceData[i[0][0]] = i[1]
-    
-    accuracies = sorted(accuracies, key=lambda so: so[2])
-    for acc in accuracies:
-        print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
-        if graphPlots:
-            plt.figure(acc[0], figsize=(10, 5))
-            data = priceData[acc[0]]
-            data.cum_ret.plot(color='r', label='Returns')
-            data.cum_strat_ret.plot(color='g', label='Strategy Returns')
-            plt.title(acc[0])
-            plt.legend(['Returns', 'Strategy'])
-            plt.grid(True)
-            plt.show(block=False)
-    
-    print()
-    
-    return accuracies
-
 
 def multiSVC(d):
     ndata = d[0]
     priceData = d[1]
     data = priceData[ndata]
 
-    #data['Return'] = np.log(data['Close'] / data['Close'].shift(1)) * 100
-    #y=data['Return'].shift(-1)'
     #Calculating future price bool difference
     y = np.where(data['Close'].shift(-1) > data['Close'], 1, -1)
-    #y = np.where(data['Close'].shift(-1) - data['Close'] > 0.0, 1, -1)
+    
     #TODO try labelEncoder in scikit
     #TODO try inverting all y values, compare to non inverted results, use best/most consistent/closest to return
     #lab_enc =preprocessing.LabelEncoder()
     #y = (lab_enc.fit_transform(data['Close'].shift(-1)/data['Close']))
     #y = (((data['Close'].shift(-1) / data['Close']) - np.min(data['Close']))/(np.max(data['Close']) - np.min(data['Close'])))
-    #if ndata=='BAC':
-    #    print(y)
+
     data['Open-Close'] = data.Open - data.Close
     data['High-Low'] = data.High - data.Low
-    X = data[['Close','Open-Close', 'High-Low']]
+    X = data[['Open-Close', 'High-Low']]
 
     split = int(split_percentage * len(data))
 
@@ -334,7 +150,7 @@ def multiSVC(d):
             #print("%2f  %2f"%(data['Close'][i],data['Close'].shift(-1)[i]))
             pass
 
-    data['Strategy_Return'] = data['Predicted_Signal'].shift(-1) * data['Return']
+    data['Strategy_Return'] = data['Predicted_Signal'] * data['Return']
     data['cum_strat_ret'] = data[split:]['Strategy_Return'].cumsum()
 
     std = data.cum_strat_ret.std()
@@ -370,6 +186,7 @@ def trainSVC(priceData):
         priceData[i[0][0]]=i[1]
 
     accuracies = sorted(accuracies,key=lambda so: so[2])
+    print('Avg test accuracy:',sum(i[2] for i in accuracies)/len(accuracies))
     for acc in accuracies:
         print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
         if graphPlots:
@@ -388,7 +205,38 @@ def trainSVC(priceData):
     return accuracies
 
 
-
+def readPriceData(dataconcat):
+    priceData={}
+    tpriceData={}
+    for f in os.listdir("./pickles"):
+        tpriceData[f[:-4]] = pd.read_pickle("./pickles/" + f)
+    for index in indices:
+        data = pd.DataFrame()
+        for interval in dataconcat:
+            tdata = tpriceData[index + interval]
+            if data.empty:
+                data = tdata
+            else:
+                for i in tdata.index:
+                    if i in data.index:
+                        data = data[:list(data.index).index(i) + 1]
+                        data = data.append(tdata[1:])
+                        break
+        priceData[index] = data
+    for stock in stocks:
+        data = pd.DataFrame()
+        for interval in dataconcat:
+            tdata = tpriceData[stock + interval]
+            if data.empty:
+                data = tdata
+            else:
+                for i in tdata.index:
+                    if i in data.index:
+                        data = data[:list(data.index).index(i) + 1]
+                        data = data.append(tdata[1:])
+                        break
+        priceData[stock] = data
+    return priceData
 
     
 def getPriceData():
