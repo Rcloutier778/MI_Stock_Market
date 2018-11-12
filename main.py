@@ -33,7 +33,13 @@ from alpha_vantage.timeseries import TimeSeries
 import random
 import os
 import sqlite3
-import tensorflow as tf
+from bs4 import BeautifulSoup
+import requests
+import re
+import urllib3.request
+import Summarizer
+import json
+from collections import defaultdict, OrderedDict, Counter
 
 
 # Get historical stock data and predict off that
@@ -68,7 +74,11 @@ alphakeys=['R2FFCW41HVNZ8DBN','O6EZ7OAWV5ERVK8S','DVHJN2K8OOWYEO8F','E6K5ZE32ODW
 
 ##Globals
 indices={'DOW':'DJI', 'NASDAQ':'IXIC', 'S&P':'GSPC'}
-stocks=['GOOGL','M','BAC','XOM','QQQ','V','DUK','VZ','CVX','PYPL','AMD','JPM']
+#Relate Jpmorgan and chase bank?
+stocks={'GOOGL':'Google','M':'Macys','BAC':'Bank of America','XOM':'Exxon Mobil',
+            'QQQ':'PowerShares QQQ Trust','V':'Visa','DUK':'Duke Energy',
+            'VZ':'Verizon','CVX':'Chevron','PYPL':'Paypal','AMD':'AMD',
+            'JPM':'J.P. Morgan'}
 
 
 
@@ -93,13 +103,118 @@ def main():
     else:
         #Use saved data
         priceData=readPriceData(dataconcat)
-        
+
+    #@@@for matlab, delete later
+    matlab=False
+    if matlab:
+        for ndata in priceData:
+            with open('matlab/'+ndata+'.txt', 'w+') as f:
+                data=priceData[ndata]
+                data['y'] = np.where(data['Close'].shift(-1) > data['Close'], 1, -1)
+                data['Open-Close'] = data.Open - data.Close
+                data['High-Low'] = data.High - data.Low
+                for l in range(779):
+                    i=data[l:l+1]
+                    if int(i['y']) ==-1:
+                        ty=1
+                    else:
+                        ty=2
+                    f.write('%f,%f,%f,%f,%f,%f,%d\n'%(i['Close'],i['Open'],i['High'],i['Low'],i['Open-Close'],i['High-Low'],ty))
+    
+        return
+
+    #@@@end for matlab
+
+
+    
+    #getArticles(priceData)
+
     trainSVC(priceData)
     # trainTensorFlow(priceData)
     if graphPlots:
         plt.pause(0.001)
         plt.waitforbuttonpress()
 
+        
+def getArticles(priceData):
+    alldata=ripArticles()
+    
+    for stockName in stocks.values():
+        data=alldata[stockName]
+        words={}
+        for i in data[0]:
+            twords=Counter()
+            for articles in data[0][i]:
+                for article in articles:
+                    for word in articles:
+                        twords[word]+=1
+                    
+            words[i] = twords
+        
+            #for each date, look at changes in price for 1, 3, and 5 days.
+            #Weigh words used according to that, try to match across all stocks 
+            #-1, 0, 1, ints or floats?
+            #Do trainSVM with and without this data. 
+
+    return
+        
+        
+def ripArticles():
+    #https://github.com/miso-belica/sumy
+    #XPATH of parent container of article body=    //*[@id="story"]/section
+    #XPATH of first body subsection=     //*[@id="story"]/section/div[1]
+    quote_page='https://www.nytimes.com/'
+    qpage='https://www.nytimes.com/search?query='
+    
+    alldata={}
+    for stockName in stocks.values():
+        if os.path.isfile(stockName+'.json'):
+            with open(stockName+'.json') as f:
+                # [ {datetime:[summarized article]}, [included urls] ]
+                # [ dict of lists, list ]
+                data = json.load(f)
+                
+        else:
+            data=[defaultdict(list),[]]
+        spage=qpage+stockName.replace(' ','%20')
+        r = requests.get(spage)
+        assert  r.status_code==200
+        soup=BeautifulSoup(r.content,'html.parser')
+        reg=re.compile('.*SearchResults-item.*')
+        f=soup.find_all('li',attrs={'class':reg})
+        links=[]
+        for i in f:
+            links.append(quote_page+i.find('a').get('href'))
+
+        for link in links:
+            if link in data[1]:
+                continue
+            data[1].append(link)
+            r = requests.get(link)
+            soup=BeautifulSoup(r.content,'html.parser')
+            reg = re.compile('.*StoryBodyCompanionColumn.*')
+            f = soup.find_all('div',attrs={'class':reg})
+            text=''
+            articleDate='PLACEHOLDER'
+            #Get date and time of publication
+            for k in f:
+                for p in k:
+                    p=p.find('p')
+                    print(str(p))
+            print(text)
+            summarizedText=Summarizer.main(text.strip())
+            data[0][articleDate].append(summarizedText)
+        
+        with open(stockName+'.json', 'w+') as f:
+            json.dump(data,f,separators=(',', ':'))
+        
+        alldata[stockName]=data
+    return alldata
+        
+        
+        
+        
+        
 def multiSVC(d):
     ndata = d[0]
     priceData = d[1]
@@ -116,7 +231,7 @@ def multiSVC(d):
 
     data['Open-Close'] = data.Open - data.Close
     data['High-Low'] = data.High - data.Low
-    X = data[['Open-Close', 'High-Low']]
+    X = data[['Open-Close','High-Low']]
 
     split = int(split_percentage * len(data))
 
@@ -143,14 +258,8 @@ def multiSVC(d):
     # Calculate log returns
     data['Return'] = np.log(data['Close'].shift(-1) / data['Close']) * 100
     data['cum_ret'] = data[split:]['Return'].cumsum()
-    if ndata=='JPM':
-        print(X)
-        for i in range(len(y)):
-            print("%2d  %2d"%(y[i],data['Predicted_Signal'][i-1]))
-            #print("%2f  %2f"%(data['Close'][i],data['Close'].shift(-1)[i]))
-            pass
 
-    data['Strategy_Return'] = data['Predicted_Signal'] * data['Return']
+    data['Strategy_Return'] = (data['Predicted_Signal']) * data['Return']
     data['cum_strat_ret'] = data[split:]['Strategy_Return'].cumsum()
 
     std = data.cum_strat_ret.std()
@@ -159,11 +268,11 @@ def multiSVC(d):
 
     accuracies=[ndata, accuracy_train * 100, accuracy_test * 100, Sharpe]
 
-
+    '''
     if ndata == 'JPM':
         print("%4s  %12s  %12s  %12s  %12s  %12s  %12s  %7s  %12s  %12s" % ("Num","Open", "Close","High","Low", "Open-Close", "High-Low", "predict", "Return", "Strat Return"))
         for i in range(-40,-20,1):
-            print("%4d  %12f  %12f  %12f  %12f  %12f  %12f  %7d  %12f  %12f" % (i, data[i:i+1]['Open'],data[i:i+1]['Close'],data[i:i+1]['High'],data[i:i+1]['Low'],data[i:i+1]['Open-Close'], X[i:i+1]['High-Low'],data['Predicted_Signal'][i:i+1],data.Return[i:i+1],data.Strategy_Return[i:i+1]))
+            print("%4d  %12f  %12f  %12f  %12f  %12f  %12f  %7d  %12f  %12f" % (i, data[i:i+1]['Open'],data[i:i+1]['Close'],data[i:i+1]['High'],data[i:i+1]['Low'],data[i:i+1]['Open-Close'], X[i:i+1]['High-Low'],data['Predicted_Signal'][i:i+1],data.Return[i:i+1],data.Strategy_Return[i:i+1]))'''
     if graphPlots:
         return accuracies, data
     else:
@@ -223,7 +332,7 @@ def readPriceData(dataconcat):
                         data = data.append(tdata[1:])
                         break
         priceData[index] = data
-    for stock in stocks:
+    for stock in stocks.keys():
         data = pd.DataFrame()
         for interval in dataconcat:
             tdata = tpriceData[stock + interval]
@@ -255,7 +364,7 @@ def getPriceData():
     for interval in intervals:
         for index in indices:
             data[index+interval],akey=getAVdata(indices[index],interval,akey)
-        for stock in stocks:
+        for stock in stocks.keys():
             data[stock+interval],akey=getAVdata(stock,interval,akey)
 
     return data
@@ -266,13 +375,13 @@ def getAVdata(stock,interval,akey):
             ts = TimeSeries(key=alphakeys[akey], output_format='pandas')
             tdata, meta_data = ts.get_intraday(symbol=stock, interval=interval, outputsize='full')
             break
-        except ValueError as e:
+        except Exception as e:
             print(alphakeys[akey])
             akey = (akey+1) % len(alphakeys)
             print(e)
 
             continue
-    print(stock, alphakeys[akey])
+    print(stock, alphakeys[akey], interval)
     tdata = tdata.rename(columns={'1. open': 'Open', '2. high': 'High', '3. low': 'Low', \
                                   '4. close': 'Close', '5. volume': 'Volume'})
     tdata = tdata.dropna()
