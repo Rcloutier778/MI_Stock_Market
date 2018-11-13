@@ -108,7 +108,7 @@ def main():
     matlab=False
     if matlab:
         for ndata in priceData:
-            with open('matlab/'+ndata+'.txt', 'w+') as f:
+            with open('matlab/data/'+ndata+'.txt', 'w+') as f:
                 data=priceData[ndata]
                 data['y'] = np.where(data['Close'].shift(-1) > data['Close'], 1, -1)
                 data['Open-Close'] = data.Open - data.Close
@@ -127,7 +127,7 @@ def main():
 
 
     
-    #getArticles(priceData)
+    getArticles(priceData)
 
     trainSVC(priceData)
     # trainTensorFlow(priceData)
@@ -157,63 +157,96 @@ def getArticles(priceData):
             #Do trainSVM with and without this data. 
 
     return
-        
-        
-def ripArticles():
-    #https://github.com/miso-belica/sumy
-    #XPATH of parent container of article body=    //*[@id="story"]/section
-    #XPATH of first body subsection=     //*[@id="story"]/section/div[1]
-    quote_page='https://www.nytimes.com/'
-    qpage='https://www.nytimes.com/search?query='
-    
-    alldata={}
-    for stockName in stocks.values():
-        if os.path.isfile(stockName+'.json'):
-            with open(stockName+'.json') as f:
-                # [ {datetime:[summarized article]}, [included urls] ]
-                # [ dict of lists, list ]
-                data = json.load(f)
-                
-        else:
-            data=[defaultdict(list),[]]
-        spage=qpage+stockName.replace(' ','%20')
-        r = requests.get(spage)
-        assert  r.status_code==200
-        soup=BeautifulSoup(r.content,'html.parser')
-        reg=re.compile('.*SearchResults-item.*')
-        f=soup.find_all('li',attrs={'class':reg})
-        links=[]
-        for i in f:
-            links.append(quote_page+i.find('a').get('href'))
 
-        for link in links:
-            if link in data[1]:
-                continue
-            data[1].append(link)
-            r = requests.get(link)
-            soup=BeautifulSoup(r.content,'html.parser')
-            reg = re.compile('.*StoryBodyCompanionColumn.*')
-            f = soup.find_all('div',attrs={'class':reg})
-            text=''
-            articleDate='PLACEHOLDER'
-            #Get date and time of publication
-            for k in f:
-                for p in k:
-                    p=p.find('p')
-                    print(str(p))
-            print(text)
-            summarizedText=Summarizer.main(text.strip())
+
+def ripArticlesChild(stockName):
+    # https://github.com/miso-belica/sumy
+    # XPATH of parent container of article body=    //*[@id="story"]/section
+    # XPATH of first body subsection=     //*[@id="story"]/section/div[1]
+    quote_page = 'https://www.nytimes.com/'
+    qpage = 'https://www.nytimes.com/search?query='
+
+    alldata = {}
+    if os.path.isfile('summarizedArticles/'+stockName + '.json'):
+        with open('summarizedArticles/'+stockName + '.json') as f:
+            # [ {datetime:[summarized article]}, [included urls] ]
+            # [ dict of lists, list ]
+            data = json.load(f)
+
+    else:
+        data = [defaultdict(list), []]
+    spage = qpage + stockName.replace(' ', '%20')
+    r = requests.get(spage)
+    assert r.status_code == 200
+    soup = BeautifulSoup(r.content, 'html.parser')
+    reg = re.compile('.*SearchResults-item.*')
+    f = soup.find_all('li', attrs={'class': reg})
+    links = []
+    for i in f:
+        reg = re.compile('.*Item-section--.*')
+        section = i.find('p', attrs={'class': reg}).text.lower()
+
+        if section in ['technology', 'business','climate','energy & environment']:
+            links.append(quote_page + i.find('a').get('href'))
+
+    for link in links:
+        if link in data[1]:
+            continue
+        data[1].append(link)
+        r = requests.get(link)
+        soup = BeautifulSoup(r.content, 'html.parser')
+        reg = re.compile('.*StoryBodyCompanionColumn.*')
+        f = soup.find_all('div', attrs={'class': reg})
+        text = ''
+        print(soup.find('time'))
+        print(link)
+        if soup.find('time'):
+            articleDate = soup.find('time')['datetime']
+        else:
+            # Not an article
+            continue
+        # Get date and time of publication
+
+        for k in f:  # for each BodyCompanionColumn
+            k = k.find_all('p')  # Find all paragraphs
+            for p in k:  # for each paragraph
+                # get text
+                text += p.text
+
+        summarizedText = Summarizer.main(text.strip())
+        if articleDate in data[0].keys():
             data[0][articleDate].append(summarizedText)
-        
-        with open(stockName+'.json', 'w+') as f:
-            json.dump(data,f,separators=(',', ':'))
-        
-        alldata[stockName]=data
+        else:
+            data[0][articleDate] = [summarizedText]
+
+    with open('summarizedArticles/'+stockName + '.json', 'w+') as f:
+        json.dump(data, f, separators=(',', ':'))
+
+    return stockName,data
+
+
+
+def ripArticles():
+    """
+    Go to NYTimes, search for company name, summarize articles and place in dict
+    with key being article publish date. Returns dict of summarized articles.
+    """
+    pool=Pool()
+    alldata={}
+    fargs = []
+    for stockName in stocks.values():
+        fargs.append(stockName)
+    results = pool.map(ripArticlesChild,fargs)
+    pool.close()
+    pool.join()
+    for i in results:
+        alldata[i[0]] = i[1]
+    for i in alldata:
+        print(i)
+        print(alldata[i])
+
     return alldata
-        
-        
-        
-        
+
         
 def multiSVC(d):
     ndata = d[0]

@@ -20,8 +20,7 @@ def main(inputContent):
 
     sentence_tokens, word_tokens = tokenize_content(content)  
     sentence_ranks = score_tokens(word_tokens, sentence_tokens)
-
-    return summarize(sentence_ranks, sentence_tokens, args.length)
+    return summarize(sentence_ranks, sentence_tokens)
     
 def sanitize_input(data):
     """ 
@@ -68,17 +67,15 @@ def score_tokens(filterd_words, sentence_tokens):
 
     return ranking
 
-def summarize(ranks, sentences, length):
+def summarize(ranks, sentences):
     """
     Utilizes a ranking map produced by score_token to extract
     the highest ranking sentences in order after converting from
     array to string.  
     """
-    if int(length) > len(sentences): 
-        print("Error, more sentences requested than available. Use --l (--length) flag to adjust.")
-        exit()
 
-    indexes = nlargest(length, ranks, key=ranks.get)
+
+    indexes = nlargest(len(sentences), ranks, key=ranks.get)
     final_sentences = [sentences[j] for j in sorted(indexes)]
     return ' '.join(final_sentences) 
 

@@ -12,11 +12,11 @@ files={'AMD','BAC','CVX','DOW','DUK','GOOGL','JPM','M','NASDAQ','PYPL','QQQ','S&
 %results={'Stock','SVM-Linear','SVM-Poly','SVM-Radial','SVM-sigmoid','nnet1','nnet2','ff1','ff2','ff3','lm','bfg','rp','cgb','cgf','cgp','oss','gdx'};
 results={'Stock','SVM-Linear','SVM-Poly','SVM-Radial','SVM-sigmoid',...
     'LogRegress_lambda=0','LR_lambda=1','LR_lambda=0.1',...
-    'LR_lambda=0.01','BaggedTree','AdaBoost',...
+    'LR_lambda=0.01','BaggedTree',...
     'nnet1','nnet2','ff1','ff2','ff3','nnet3','nnet4','ff4','ff5'};
 
 parfor f = 1:size(files,2)
-    str=[files{f},'.txt'];
+    str=['data/',files{f},'.txt'];
     data = load(str);
 
     X = data(:,[1,2,3,4,5,6]);
@@ -67,10 +67,7 @@ parfor f = 1:size(files,2)
     
     options.method = 'BaggedTree';
     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-    
-    options.method = 'Adaboost';
-    accuracies = [accuracies, classify677_hwk7(X,y,options)];
-    
+        
     options.method = 'nnet';
     options.nnet_hiddenLayerSize = 25;
     accuracies = [accuracies, classify677_hwk7(X,y,options)];
@@ -112,45 +109,45 @@ parfor f = 1:size(files,2)
     accuracies = [accuracies, classify677_hwk7(X,y,options)];
     
     
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'trainlm';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'trainbfg';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'trainrp';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'traincgb';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'traincgf';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'traincgp';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'trainoss';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
-% 
-%     options.method = 'feedForward';
-%     options.nnet_algo = 'traingdx';
-%     options.nnet_hiddenLayerSize = [25 10];
-%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
+    options.method = 'feedForward';
+    options.nnet_algo = 'trainlm';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'trainbfg';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'trainrp';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'traincgb';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'traincgf';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'traincgp';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'trainoss';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+
+    options.method = 'feedForward';
+    options.nnet_algo = 'traingdx';
+    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+    accuracies = [accuracies, classify677_hwk7(X,y,options)];
 
 
     
