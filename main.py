@@ -73,7 +73,7 @@ alphakeys=['R2FFCW41HVNZ8DBN','O6EZ7OAWV5ERVK8S','DVHJN2K8OOWYEO8F','E6K5ZE32ODW
            'YJKYECKVB9U1XS1Z','W7I10I713Y9PJURK']
 
 ##Globals
-indices={'DOW':'DJI', 'NASDAQ':'IXIC', 'S&P':'GSPC'}
+indices={'DOW':'DJI', 'NASDAQ':'IXIC'}
 #Relate Jpmorgan and chase bank?
 stocks={'GOOGL':'Google','M':'Macys','BAC':'Bank of America','XOM':'Exxon Mobil',
             'QQQ':'PowerShares QQQ Trust','V':'Visa','DUK':'Duke Energy',
@@ -93,16 +93,16 @@ graphPlots = True
 
 def main():
     # From the data intervals, concat the following together to use
-    dataconcat = ['30min','15min']#,'5min','1min']#, '5min', '1min']
     if refreshData:
         #Get and save new data
-        tpriceData = getPriceData()
-        for i in tpriceData:
-            data = tpriceData[i]
+        priceData = getPriceData()
+        for i in priceData:
+            data = priceData[i]
             data.to_pickle("pickles/"+i+".pkl")
-    else:
-        #Use saved data
-        priceData=readPriceData(dataconcat)
+
+    dataconcat = ['30min','15min']#,'5min','1min']#, '5min', '1min']
+    #Use saved data
+    priceData,dailyData=readPriceData(dataconcat)
 
     #@@@for matlab, delete later
     matlab=False
@@ -126,47 +126,173 @@ def main():
     #@@@end for matlab
 
 
-    
-    getArticles(priceData)
+    getArticles(dailyData)
 
+    #Intraday data prediction
     trainSVC(priceData)
     # trainTensorFlow(priceData)
     if graphPlots:
         plt.pause(0.001)
         plt.waitforbuttonpress()
 
-        
-def getArticles(priceData):
-    alldata=ripArticles()
-    
-    for stockName in stocks.values():
-        data=alldata[stockName]
-        words={}
-        for i in data[0]:
-            twords=Counter()
-            for articles in data[0][i]:
-                for article in articles:
-                    for word in articles:
-                        twords[word]+=1
-                    
-            words[i] = twords
-        
-            #for each date, look at changes in price for 1, 3, and 5 days.
-            #Weigh words used according to that, try to match across all stocks 
-            #-1, 0, 1, ints or floats?
-            #Do trainSVM with and without this data. 
+    #Daily data prediction
+    trainSVC(dailyData)
+    # trainTensorFlow(priceData)
+    if graphPlots:
+        plt.pause(0.001)
+        plt.waitforbuttonpress()
 
+
+def parseArticles(fargs):
+    #Dict of article keywords and occurances sorted by publish date of  article
+    articleDict=fargs[0]
+    #Daily price data
+    dailyData=fargs[1]
+
+    #Set of all keywords found across all articles of a company
+    allwords=set()
+    for articleDate in articleDict:
+        for article in articleDict[articleDate]:
+            for kw in article.keys():
+                allwords.add(kw)
+    
+    allwords=list(allwords)
+    
+    #Matrix. Rows=days, Cols=words mentioned
+    adata=[]
+
+    #-1,0,1 representing changes in price 
+    y=[]
+    
+    
+    for articlesDate in articleDict:
+        day0 = articlesDate
+        dt = datetime.strptime(day0,'%Y-%m-%d')
+        day1 = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
+        day3 = (dt + timedelta(days=3)).strftime("%Y-%m-%d")
+        day5 = (dt + timedelta(days=5)).strftime("%Y-%m-%d")
+        days=[day0,day1,day3,day5]
+        dayIndex=[]
+        for day in days:
+            if day in dailyData.index.values:
+                dayIndex.append(dailyData.index.get_loc(day))
+
+        #Price direction for day+1,3,5
+        dayDiff=[]
+        if len(dayIndex) > 2:
+            for index in range(1,len(dayIndex)):
+                diff=dailyData['Close'][dayIndex[index]]-dailyData['Open'][dayIndex[0]]
+                if diff>0:
+                    dayDiff.append(1)
+                elif diff<0:
+                    dayDiff.append(-1)
+                else:
+                    dayDiff.append(0)
+        else:
+            #If article is too recent, disregard it
+            continue
+
+        articles=articleDict[articlesDate]
+        if len(articles) > 1:
+            temp_article=defaultdict(int)
+            for a in articles:
+                for b in a:
+                    temp_article[b] += a[b]
+            articles=temp_article
+        else:
+            articles=articles[0]
+        for day in range(0,len(dayDiff)):
+            arow=[]
+            for word in allwords:
+                if word in articles.keys():
+                    arow.append(articles[word])
+                else:
+                    arow.append(0)
+            adata.append(arow)
+            y.append(dayDiff[day])
+    
+    adata = pd.DataFrame(np.array(adata), columns=allwords)    
+    y = np.array(y)
+
+    split = int(split_percentage * len(adata))
+
+    # Train data set
+    X_train = adata[:split]
+    y_train = y[:split]
+
+    # Test data set
+    X_test = adata[split:]
+    y_test = y[split:]
+    
+    #TODO change tol, manually set gamma and range, range C, ovo vs ovr
+    sv = SVC(C=1.0, kernel='rbf', degree=3, gamma='auto', coef0=0.0, shrinking=True, \
+             probability=True, cache_size=200, class_weight=None, max_iter=-1, \
+             decision_function_shape='ovr', random_state=None, tol=0.001)
+    try:
+        cls = sv.fit(X_train, y_train)
+    except Exception as e:
+        print(X_train)
+        print(y_train)
+        raise(e)
+
+    accuracy_train = accuracy_score(y_train, cls.predict(X_train))
+    
+    accuracy_test = accuracy_score(y_test, cls.predict(X_test))
+
+    accuracies=[accuracy_train * 100, accuracy_test * 100]
+    print(accuracies)
+    
+    return wordWeight
+
+
+def getArticles(priceData):
+    """
+    main func for articles
+    """
+    alldata = ripArticles() #Get articles and summarize and keywords
+    pool = Pool()
+    fargs = []
+    wordWeights = defaultdict(int)
+    
+    #Multi-thread word weights
+    for stockName in stocks.keys():
+        fargs.append([alldata[stocks[stockName]][0],priceData[stockName]])
+
+
+
+
+
+
+
+
+
+
+    results = pool.map(parseArticles, fargs)
+    pool.close()
+    pool.join()
+    for i in results:
+        for word in i:
+            wordWeights[word] += i[word]
+
+    print(wordWeights)
+
+
+    1/0
     return
 
-
 def ripArticlesChild(stockName):
+    """
+    Search NYTimes for a company. 
+    Read all applicable articles. 
+    Summarize all articles.
+    
+    """
     # https://github.com/miso-belica/sumy
     # XPATH of parent container of article body=    //*[@id="story"]/section
     # XPATH of first body subsection=     //*[@id="story"]/section/div[1]
     quote_page = 'https://www.nytimes.com/'
     qpage = 'https://www.nytimes.com/search?query='
 
-    alldata = {}
     if os.path.isfile('summarizedArticles/'+stockName + '.json'):
         with open('summarizedArticles/'+stockName + '.json') as f:
             # [ {datetime:[summarized article]}, [included urls] ]
@@ -184,10 +310,13 @@ def ripArticlesChild(stockName):
     links = []
     for i in f:
         reg = re.compile('.*Item-section--.*')
-        section = i.find('p', attrs={'class': reg}).text.lower()
+        try:
+            section = i.find('p', attrs={'class': reg}).text.lower()
 
-        if section in ['technology', 'business','climate','energy & environment']:
-            links.append(quote_page + i.find('a').get('href'))
+            if section in ['technology', 'business','climate','energy & environment']:
+                links.append(quote_page + i.find('a').get('href'))
+        except:
+            pass
 
     for link in links:
         if link in data[1]:
@@ -198,8 +327,6 @@ def ripArticlesChild(stockName):
         reg = re.compile('.*StoryBodyCompanionColumn.*')
         f = soup.find_all('div', attrs={'class': reg})
         text = ''
-        print(soup.find('time'))
-        print(link)
         if soup.find('time'):
             articleDate = soup.find('time')['datetime']
         else:
@@ -213,11 +340,12 @@ def ripArticlesChild(stockName):
                 # get text
                 text += p.text
 
-        summarizedText = Summarizer.main(text.strip())
+        summarizedText = Summarizer.getSummary(text.strip())
+        keywords = Summarizer.getKeywords(summarizedText)
         if articleDate in data[0].keys():
-            data[0][articleDate].append(summarizedText)
+            data[0][articleDate].append(keywords)
         else:
-            data[0][articleDate] = [summarizedText]
+            data[0][articleDate] = [keywords]
 
     with open('summarizedArticles/'+stockName + '.json', 'w+') as f:
         json.dump(data, f, separators=(',', ':'))
@@ -241,9 +369,6 @@ def ripArticles():
     pool.join()
     for i in results:
         alldata[i[0]] = i[1]
-    for i in alldata:
-        print(i)
-        print(alldata[i])
 
     return alldata
 
@@ -350,8 +475,12 @@ def trainSVC(priceData):
 def readPriceData(dataconcat):
     priceData={}
     tpriceData={}
+    dailyData={}
     for f in os.listdir("./pickles"):
-        tpriceData[f[:-4]] = pd.read_pickle("./pickles/" + f)
+        if 'daily' in f:
+            dailyData[f[:-9]]= pd.read_pickle("./pickles/" + f)
+        else: #intraday
+            tpriceData[f[:-4]] = pd.read_pickle("./pickles/" + f)
     for index in indices:
         data = pd.DataFrame()
         for interval in dataconcat:
@@ -378,7 +507,7 @@ def readPriceData(dataconcat):
                         data = data.append(tdata[1:])
                         break
         priceData[stock] = data
-    return priceData
+    return priceData, dailyData
 
     
 def getPriceData():
@@ -393,7 +522,7 @@ def getPriceData():
     """
     data={}
     akey=0
-    intervals=['60min','30min','15min','5min','1min']
+    intervals=['daily','60min','30min','15min','5min','1min']
     for interval in intervals:
         for index in indices:
             data[index+interval],akey=getAVdata(indices[index],interval,akey)
@@ -402,16 +531,24 @@ def getPriceData():
 
     return data
 
+
 def getAVdata(stock,interval,akey):
     while True:
         try:
             ts = TimeSeries(key=alphakeys[akey], output_format='pandas')
-            tdata, meta_data = ts.get_intraday(symbol=stock, interval=interval, outputsize='full')
+            if interval == 'daily':
+                tdata, meta_data = ts.get_daily(symbol=stock, outputsize='full')
+            elif interval == 'weekly':
+                tdata, meta_data = ts.get_weekly(symbol=stock, outputsize='full')
+            elif interval == 'monthly':
+                tdata, meta_data = ts.get_monthly(symbol=stock, outputsize='full')
+            else:
+                tdata, meta_data = ts.get_intraday(symbol=stock, interval=interval, outputsize='full')
             break
         except Exception as e:
-            print(alphakeys[akey])
+            print('Exception!!!: Stock %s   Alphakey: %s  Interval: %s' % (stock, alphakeys[akey],interval))
             akey = (akey+1) % len(alphakeys)
-            print(e)
+            print(e,'\n')
 
             continue
     print(stock, alphakeys[akey], interval)

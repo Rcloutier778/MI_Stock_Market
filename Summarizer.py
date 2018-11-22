@@ -12,15 +12,30 @@ from string import punctuation
 from nltk.probability import FreqDist
 from heapq import nlargest
 from collections import defaultdict
+from gensim.summarization import keywords
 
-def main(inputContent):
+def getSummary(inputContent):
     """ Drive the process from argument to output """ 
 
     content = sanitize_input(inputContent)
 
     sentence_tokens, word_tokens = tokenize_content(content)  
     sentence_ranks = score_tokens(word_tokens, sentence_tokens)
-    return summarize(sentence_ranks, sentence_tokens)
+    summary = summarize(sentence_ranks, sentence_tokens)
+    return summary
+    
+def getKeywords(text):
+    """
+    Get keywords of text with the count of the number of times they appear
+    """
+    kwordsCount={}
+    kwords = keywords(text).strip().split('\n')
+    for word in kwords:
+        kwordsCount[word]=text.count(word)
+    return kwordsCount
+    
+    
+    
     
 def sanitize_input(data):
     """ 
