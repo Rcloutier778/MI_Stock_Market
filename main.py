@@ -1,16 +1,49 @@
+import multiprocessing
+from multiprocessing import Pool
+
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 import matplotlib.cbook
 warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import matplotlib.dates as mdates
+from datetime import datetime, timedelta
 
 # Machine learning classification libraries
+from sklearn import preprocessing
+from sklearn.svm import SVC, SVR, NuSVC, LinearSVC
+from sklearn.metrics import scorer
+from sklearn.metrics import accuracy_score
+from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
+from  sklearn.model_selection import cross_val_score, train_test_split
+
 
 
 # For data manipulation
+import pandas as pd
+import numpy as np
 
 # To plot
+import matplotlib.pyplot as plt
+import seaborn
 
 # To fetch data
+from pandas_datareader import data as pdr
+from collections import  deque
+import time
+from alpha_vantage.timeseries import TimeSeries
+import random
+import os
+import sqlite3
+from bs4 import BeautifulSoup
+import requests
+import re
+import urllib3.request
+import Summarizer
+import json
+from collections import defaultdict, OrderedDict, Counter
+from selenium import webdriver
+from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.common.keys import Keys
 from newsArticles import *
 # Get historical stock data and predict off that
 # Get it into realtime

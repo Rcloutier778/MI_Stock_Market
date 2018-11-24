@@ -28,6 +28,7 @@ def getKeywords(text):
     """
     Get keywords of text with the count of the number of times they appear
     """
+    #TODO Add plural stripping (convert plural words to singular to help reduce number of dimensions)
     kwordsCount={}
     kwords = keywords(text).strip().split('\n')
     for word in kwords:
@@ -93,6 +94,3 @@ def summarize(ranks, sentences):
     indexes = nlargest(len(sentences), ranks, key=ranks.get)
     final_sentences = [sentences[j] for j in sorted(indexes)]
     return ' '.join(final_sentences) 
-
-if __name__ == "__main__":
-    print(main())
