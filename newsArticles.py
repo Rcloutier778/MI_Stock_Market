@@ -203,9 +203,6 @@ def parseArticles(fargs):
     return [adata, y, allwords]
 
 
-
-
-
 def getArticleLinks(names):
     print("Getting article links")
     driver = webdriver.Chrome()
@@ -326,11 +323,15 @@ def ripArticlesChild(fargs):
             articleDate = soup.find('time')['datetime']
             try:
                 datetime.strptime(articleDate, "%Y-%m-%d")
-            except:
-                articleDate = articleDate.replace("Sept", "Sep")
-                dt = datetime.strptime(articleDate, "%b. %d, %Y")
-                articleDate = dt.strftime("%Y-%m-%d")
-
+            except ValueError:
+                try:
+                    articleDate = articleDate.replace("Sept", "Sep")
+                    dt = datetime.strptime(articleDate, "%b. %d, %Y")
+                    articleDate = dt.strftime("%Y-%m-%d")
+                except ValueError:
+                    #Has UTC offset
+                    dt = datetime.strptime(articleDate, "%Y-%m-%dT%H:%M:%S%z")
+                    articleDate = dt.strftime("%Y-%m-%d")
         else:
             # Not an article
             continue
