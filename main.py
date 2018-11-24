@@ -1,47 +1,17 @@
-import multiprocessing
-from multiprocessing import Pool
-
 import warnings
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 import matplotlib.cbook
 warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
-import matplotlib.dates as mdates
-from datetime import datetime, timedelta
 
 # Machine learning classification libraries
-from sklearn import preprocessing
-from sklearn.svm import SVC, SVR, NuSVC, LinearSVC
-from sklearn.metrics import scorer
-from sklearn.metrics import accuracy_score
-from sklearn.neighbors import KNeighborsClassifier, KNeighborsRegressor
-
 
 
 # For data manipulation
-import pandas as pd
-import numpy as np
 
 # To plot
-import matplotlib.pyplot as plt
-import seaborn
 
 # To fetch data
-from pandas_datareader import data as pdr
-from collections import  deque
-import time
-from alpha_vantage.timeseries import TimeSeries
-import random
-import os
-import sqlite3
-from bs4 import BeautifulSoup
-import requests
-import re
-import urllib3.request
-import Summarizer
-import json
-from collections import defaultdict, OrderedDict, Counter
-
-
+from newsArticles import *
 # Get historical stock data and predict off that
 # Get it into realtime
 # make the model dynamic with the realtime data
@@ -76,9 +46,8 @@ alphakeys=['R2FFCW41HVNZ8DBN','O6EZ7OAWV5ERVK8S','DVHJN2K8OOWYEO8F','E6K5ZE32ODW
 indices={'DOW':'DJI', 'NASDAQ':'IXIC'}
 #Relate Jpmorgan and chase bank?
 stocks={'GOOGL':'Google','M':'Macys','BAC':'Bank of America','XOM':'Exxon Mobil',
-            'QQQ':'PowerShares QQQ Trust','V':'Visa','DUK':'Duke Energy',
-            'VZ':'Verizon','CVX':'Chevron','PYPL':'Paypal','AMD':'AMD',
-            'JPM':'J.P. Morgan'}
+            'V':'Visa','DUK':'Duke Energy','VZ':'Verizon','CVX':'Chevron',
+            'PYPL':'Paypal','AMD':'AMD','JPM':'J.P. Morgan'}
 
 
 
@@ -94,6 +63,7 @@ graphPlots = True
 def main():
     # From the data intervals, concat the following together to use
     if refreshData:
+        print("Refreshing price data")
         #Get and save new data
         priceData = getPriceData()
         for i in priceData:
@@ -102,6 +72,7 @@ def main():
 
     dataconcat = ['30min','15min']#,'5min','1min']#, '5min', '1min']
     #Use saved data
+    print("Reading  price data")
     priceData,dailyData=readPriceData(dataconcat)
 
     #@@@for matlab, delete later
@@ -126,7 +97,7 @@ def main():
     #@@@end for matlab
 
 
-    getArticles(dailyData)
+    getArticles(dailyData, stocks)
 
     #Intraday data prediction
     trainSVC(priceData)
@@ -143,234 +114,6 @@ def main():
         plt.waitforbuttonpress()
 
 
-def parseArticles(fargs):
-    #Dict of article keywords and occurances sorted by publish date of  article
-    articleDict=fargs[0]
-    #Daily price data
-    dailyData=fargs[1]
-
-    #Set of all keywords found across all articles of a company
-    allwords=set()
-    for articleDate in articleDict:
-        for article in articleDict[articleDate]:
-            for kw in article.keys():
-                allwords.add(kw)
-    
-    allwords=list(allwords)
-    
-    #Matrix. Rows=days, Cols=words mentioned
-    adata=[]
-
-    #-1,0,1 representing changes in price 
-    y=[]
-    
-    
-    for articlesDate in articleDict:
-        day0 = articlesDate
-        dt = datetime.strptime(day0,'%Y-%m-%d')
-        day1 = (dt + timedelta(days=1)).strftime("%Y-%m-%d")
-        day3 = (dt + timedelta(days=3)).strftime("%Y-%m-%d")
-        day5 = (dt + timedelta(days=5)).strftime("%Y-%m-%d")
-        days=[day0,day1,day3,day5]
-        dayIndex=[]
-        for day in days:
-            if day in dailyData.index.values:
-                dayIndex.append(dailyData.index.get_loc(day))
-
-        #Price direction for day+1,3,5
-        dayDiff=[]
-        if len(dayIndex) > 2:
-            for index in range(1,len(dayIndex)):
-                diff=dailyData['Close'][dayIndex[index]]-dailyData['Open'][dayIndex[0]]
-                if diff>0:
-                    dayDiff.append(1)
-                elif diff<0:
-                    dayDiff.append(-1)
-                else:
-                    dayDiff.append(0)
-        else:
-            #If article is too recent, disregard it
-            continue
-
-        articles=articleDict[articlesDate]
-        if len(articles) > 1:
-            temp_article=defaultdict(int)
-            for a in articles:
-                for b in a:
-                    temp_article[b] += a[b]
-            articles=temp_article
-        else:
-            articles=articles[0]
-        for day in range(0,len(dayDiff)):
-            arow=[]
-            for word in allwords:
-                if word in articles.keys():
-                    arow.append(articles[word])
-                else:
-                    arow.append(0)
-            adata.append(arow)
-            y.append(dayDiff[day])
-    
-    adata = pd.DataFrame(np.array(adata), columns=allwords)    
-    y = np.array(y)
-
-    split = int(split_percentage * len(adata))
-
-    # Train data set
-    X_train = adata[:split]
-    y_train = y[:split]
-
-    # Test data set
-    X_test = adata[split:]
-    y_test = y[split:]
-    
-    #TODO change tol, manually set gamma and range, range C, ovo vs ovr
-    sv = SVC(C=1.0, kernel='rbf', degree=3, gamma='auto', coef0=0.0, shrinking=True, \
-             probability=True, cache_size=200, class_weight=None, max_iter=-1, \
-             decision_function_shape='ovr', random_state=None, tol=0.001)
-    try:
-        cls = sv.fit(X_train, y_train)
-    except Exception as e:
-        print(X_train)
-        print(y_train)
-        raise(e)
-
-    accuracy_train = accuracy_score(y_train, cls.predict(X_train))
-    
-    accuracy_test = accuracy_score(y_test, cls.predict(X_test))
-
-    accuracies=[accuracy_train * 100, accuracy_test * 100]
-    print(accuracies)
-    
-    return wordWeight
-
-
-def getArticles(priceData):
-    """
-    main func for articles
-    """
-    alldata = ripArticles() #Get articles and summarize and keywords
-    pool = Pool()
-    fargs = []
-    wordWeights = defaultdict(int)
-    
-    #Multi-thread word weights
-    for stockName in stocks.keys():
-        fargs.append([alldata[stocks[stockName]][0],priceData[stockName]])
-
-
-
-
-
-
-
-
-
-
-    results = pool.map(parseArticles, fargs)
-    pool.close()
-    pool.join()
-    for i in results:
-        for word in i:
-            wordWeights[word] += i[word]
-
-    print(wordWeights)
-
-
-    1/0
-    return
-
-def ripArticlesChild(stockName):
-    """
-    Search NYTimes for a company. 
-    Read all applicable articles. 
-    Summarize all articles.
-    
-    """
-    # https://github.com/miso-belica/sumy
-    # XPATH of parent container of article body=    //*[@id="story"]/section
-    # XPATH of first body subsection=     //*[@id="story"]/section/div[1]
-    quote_page = 'https://www.nytimes.com/'
-    qpage = 'https://www.nytimes.com/search?query='
-
-    if os.path.isfile('summarizedArticles/'+stockName + '.json'):
-        with open('summarizedArticles/'+stockName + '.json') as f:
-            # [ {datetime:[summarized article]}, [included urls] ]
-            # [ dict of lists, list ]
-            data = json.load(f)
-
-    else:
-        data = [defaultdict(list), []]
-    spage = qpage + stockName.replace(' ', '%20')
-    r = requests.get(spage)
-    assert r.status_code == 200
-    soup = BeautifulSoup(r.content, 'html.parser')
-    reg = re.compile('.*SearchResults-item.*')
-    f = soup.find_all('li', attrs={'class': reg})
-    links = []
-    for i in f:
-        reg = re.compile('.*Item-section--.*')
-        try:
-            section = i.find('p', attrs={'class': reg}).text.lower()
-
-            if section in ['technology', 'business','climate','energy & environment']:
-                links.append(quote_page + i.find('a').get('href'))
-        except:
-            pass
-
-    for link in links:
-        if link in data[1]:
-            continue
-        data[1].append(link)
-        r = requests.get(link)
-        soup = BeautifulSoup(r.content, 'html.parser')
-        reg = re.compile('.*StoryBodyCompanionColumn.*')
-        f = soup.find_all('div', attrs={'class': reg})
-        text = ''
-        if soup.find('time'):
-            articleDate = soup.find('time')['datetime']
-        else:
-            # Not an article
-            continue
-        # Get date and time of publication
-
-        for k in f:  # for each BodyCompanionColumn
-            k = k.find_all('p')  # Find all paragraphs
-            for p in k:  # for each paragraph
-                # get text
-                text += p.text
-
-        summarizedText = Summarizer.getSummary(text.strip())
-        keywords = Summarizer.getKeywords(summarizedText)
-        if articleDate in data[0].keys():
-            data[0][articleDate].append(keywords)
-        else:
-            data[0][articleDate] = [keywords]
-
-    with open('summarizedArticles/'+stockName + '.json', 'w+') as f:
-        json.dump(data, f, separators=(',', ':'))
-
-    return stockName,data
-
-
-
-def ripArticles():
-    """
-    Go to NYTimes, search for company name, summarize articles and place in dict
-    with key being article publish date. Returns dict of summarized articles.
-    """
-    pool=Pool()
-    alldata={}
-    fargs = []
-    for stockName in stocks.values():
-        fargs.append(stockName)
-    results = pool.map(ripArticlesChild,fargs)
-    pool.close()
-    pool.join()
-    for i in results:
-        alldata[i[0]] = i[1]
-
-    return alldata
 
         
 def multiSVC(d):
@@ -403,7 +146,7 @@ def multiSVC(d):
     #TODO change tol, manually set gamma and range, range C, ovo vs ovr
     sv = SVC(C=1.0, kernel='rbf', degree=3, gamma='auto', coef0=0.0, shrinking=True, \
              probability=True, cache_size=200, class_weight=None, max_iter=-1, \
-             decision_function_shape='ovr', random_state=None, tol=0.0000001)
+             decision_function_shape='ovr', random_state=0, tol=0.0000001)
     cls = sv.fit(X_train, y_train)
 
 
