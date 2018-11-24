@@ -130,6 +130,9 @@ def main():
     #@@@end for matlab
 
 
+    #TODO Create 3 threads, 1 for getArticles, 1 for trainSCV w/ intraday, 1 for trainSCV w/ daily
+    #
+
     getArticles(dailyData, stocks)
 
     #Intraday data prediction
@@ -179,7 +182,7 @@ def multiSVC(d):
     #TODO change tol, manually set gamma and range, range C, ovo vs ovr
     sv = SVC(C=1.0, kernel='rbf', degree=3, gamma='auto', coef0=0.0, shrinking=True, \
              probability=True, cache_size=200, class_weight=None, max_iter=-1, \
-             decision_function_shape='ovr', random_state=0, tol=0.0000001)
+             decision_function_shape='ovr', random_state=None, tol=0.0000001)
     cls = sv.fit(X_train, y_train)
 
 
