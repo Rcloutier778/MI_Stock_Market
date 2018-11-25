@@ -10,8 +10,9 @@ from datetime import datetime, timedelta
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score
 from  sklearn.model_selection import train_test_split
-
-
+from sklearn.feature_selection import chi2, f_classif, mutual_info_classif, SelectFwe, SelectKBest, SelectFromModel, SelectPercentile, SelectFdr, SelectFpr, GenericUnivariateSelect
+from sklearn.feature_selection.rfe import RFE, RFECV
+from sklearn.linear_model import LassoCV
 
 # For data manipulation
 import pandas as pd
@@ -34,15 +35,17 @@ from selenium.webdriver.common.keys import Keys
 
 
 
-refreshArticles = False
-updateArticles = False
-numPages=20 #Number of pages of articles to use
+refreshArticles = False #Wipe data and start again
+updateArticles = False #Update current data
+
+numPages=100 #Number of pages of articles to use
 
 
-def getArticles(priceData,stocks):
+def getArticles(priceData, dailyData, stocks):
     """
     Main func for all news article stuff
-    :param priceData: daily price data for all relevent stocks, same format as intraday
+    ;param priceData: intraday data
+    :param dailyData: daily price data for all relevent stocks, same format as intraday
     :param stocks: List of stocks
     :return:
     """
@@ -55,7 +58,7 @@ def getArticles(priceData,stocks):
 
     for stockName in stocks.keys():
         if alldata[stocks[stockName]][0]:
-            fargs.append([alldata[stocks[stockName]][0], priceData[stockName], stockName])
+            fargs.append([alldata[stocks[stockName]][0], dailyData[stockName], stockName])
 
     results = pool.map(parseArticles, fargs)
     pool.close()
@@ -83,14 +86,20 @@ def getArticles(priceData,stocks):
     adata = adata.fillna(0)
     y = np.array(y)
 
-    #SVM with all words
-    accuracies=articleSVM(adata,y,'Overall Accuracies')
-    print(accuracies)
+    print("Skipping overall accuracy measurments for testing ")
+    if False:
+        print(len(countedAllWords))
+        print(adata.shape)
+
+
+        #SVM with all words
+        accuracies=articleSVM(adata,y,'Overall Accuracies')
+        print(accuracies)
 
     #Most common reoccuring words
     #countedAllWords.items() ==> [key,values]
     sorted_keys_by_values = sorted(countedAllWords.keys(),key=lambda kv: countedAllWords[kv], reverse=True)
-    cutIndex=len(sorted_keys_by_values)//3
+    cutIndex=len(sorted_keys_by_values)//4
     chopped_keys=sorted_keys_by_values[:cutIndex]
 
     chopped_adata=adata[chopped_keys]
@@ -98,13 +107,60 @@ def getArticles(priceData,stocks):
     chopped_accuracies=articleSVM(chopped_adata,y,'Chopped Overall Accuracies')
     print(chopped_accuracies)
 
-    # TODO Shared words classification
+
+    selections = ['k_best','fpr','fdr','fwe','percentile']
+
+    fargs=[]
+    for select in selections:
+        fargs.append([adata, y, select, 'chi2'])
+
+    pool=Pool()
+    results=pool.map(dimHelper, fargs)
+    pool.close()
+    pool.join()
+
+    results.append(chopped_accuracies)
+    results = sorted(results, key= lambda kv: kv[2], reverse=True)
+
+    for i in results:
+        print(i[:-1])
+
+    best_fit_adata = i[0][3]
+
+
+
+    print("Using None for rs in articlSVM!!!!!!")
+
+
+
+    #TODO Feature selection
+    #TODO Feature Extraction
+    #TODO Dimensionality Reduction
 
     # TODO return_estimator
 
-    1 / 0
 
     return
+
+
+def dimHelper(fargs):
+    adata = fargs[0]
+    y = fargs[1]
+    select = fargs[2]
+    classm = fargs[3]
+    try:
+        if select=='k_best':
+            adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select, param=200).fit_transform(adata, y)
+
+        elif select=='percentile':
+            adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select,param=10).fit_transform(adata, y)
+        else:
+            adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select).fit_transform(adata,y)
+        accuracies = articleSVM(adata_new,y,select + " " + classm)
+        accuracies.append(adata_new)
+        return accuracies
+    except:
+        print(select + " " + classm + " Failed")
 
 
 def ripArticles(stocks):
@@ -118,19 +174,23 @@ def ripArticles(stocks):
         articleLinks = getArticleLinks(list(stocks.values()))
         with open('summarizedArticles/articleLinks.json', 'w+') as f:
             json.dump(articleLinks, f, separators=(',', ':'))
+        print("Saved article links")
     else:
         if os.path.isfile('summarizedArticles/articleLinks.json'):
             with open('summarizedArticles/articleLinks.json','r') as f:
                 articleLinks = json.load(f)
+            print("Loaded article links")
         else:
             articleLinks = getArticleLinks(list(stocks.values()))
             with open('summarizedArticles/articleLinks.json', 'w+') as f:
                 json.dump(articleLinks, f, separators=(',', ':'))
+            print("Saved article links")
 
     pool = Pool()
     alldata = {}
     fargs = []
 
+    print("Reading articles")
     for stockName in stocks.values():
         fargs.append([stockName, articleLinks[stockName], refreshArticles, updateArticles])
     results = pool.map(ripArticlesChild, fargs)
@@ -138,7 +198,7 @@ def ripArticles(stocks):
     pool.join()
     for i in results:
         alldata[i[0]] = i[1]
-
+    print("Finished ripping articles")
     return alldata
 
 
@@ -219,7 +279,7 @@ def ripArticlesChild(fargs):
     with open('summarizedArticles/' + stockName + '.json', 'w+') as f:
         json.dump(data, f, separators=(',', ':'))
 
-
+    print("Finished %s" % stockName)
     return stockName, data
 
 
@@ -297,9 +357,11 @@ def getArticleLinks(names):
             except:
                 pass
         linkDict[name] = links
+        print("Number of links: %d"%len(links))
 
     # Gracefully close driver
     driver.close()
+    driver.quit()
 
     return linkDict
 
@@ -414,10 +476,10 @@ def articleSVM(X,y, name):
     :return: List of [name, training accuracy, testing accuracy]
     """
     y_train = [0, 0]
-    rs = 0  # Used to prevent infinite loop
+    rs = None   # Used to prevent infinite loop
     while all(y_train[0] == ytemp for ytemp in y_train):
         X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=rs)
-        rs += 1
+        #rs += 1
 
     sv = SVC(C=1.0, kernel='rbf', degree=3, gamma='auto', coef0=0.0, shrinking=True, \
              probability=True, cache_size=200, class_weight=None, max_iter=-1, \

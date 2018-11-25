@@ -133,7 +133,7 @@ def main():
     #TODO Create 3 threads, 1 for getArticles, 1 for trainSCV w/ intraday, 1 for trainSCV w/ daily
     #
 
-    getArticles(dailyData, stocks)
+    getArticles(priceData, dailyData, stocks)
 
     #Intraday data prediction
     trainSVC(priceData)
