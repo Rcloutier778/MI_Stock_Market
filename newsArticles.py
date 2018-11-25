@@ -39,7 +39,7 @@ refreshArticles = False #Wipe data and start again
 updateArticles = False #Update current data
 
 numPages=100 #Number of pages of articles to use
-
+minAccuracy=30 #Minimum accuracy
 
 def getArticles(priceData, dailyData, stocks):
     """
@@ -65,26 +65,34 @@ def getArticles(priceData, dailyData, stocks):
     pool.join()
 
     adata = pd.DataFrame()
+    fittedAdata = pd.DataFrame()
     y = []
     countedAllWords = defaultdict(int)
+    dataDict = {}
+    accuracyDict=defaultdict(dict)
 
     for result in results:
-        tadata, ty, tallWords = result
-        try:
-            if tadata == 0:
-                continue
-        except:
-            pass
-        adata = adata.append(tadata, ignore_index=True, sort=False)
-        y.extend(ty)
-        for word in tallWords:
-            countedAllWords[word]+=tallWords[word]
+        tacc = result
+        if tacc==None:
+            continue
+        dataDict[tacc['name']] = tacc
+        adata = adata.append(tacc['adata'], ignore_index=True, sort=False)
+        if 'adata_new' in tacc.keys():
+            fittedAdata = fittedAdata.append(tacc['adata_new'], ignore_index=True, sort=False)
+        else:
+            fittedAdata = fittedAdata.append(tacc['adata'], ignore_index=True, sort=False)
+        accuracyDict[tacc['name']]['stand_alone'] = tacc['accuracy']
+
+        y.extend(tacc['y'])
+        for word in tacc['countedAllWords']:
+            countedAllWords[word]+=tacc['countedAllWords'][word]
 
     print("Classifying total words")
 
     #setup X and y
     adata = adata.fillna(0)
     y = np.array(y)
+    fittedAdata = fittedAdata.fillna(0)
 
     print("Skipping overall accuracy measurments for testing ")
     if False:
@@ -94,10 +102,13 @@ def getArticles(priceData, dailyData, stocks):
 
         #SVM with all words
         accuracies=articleSVM(adata,y,'Overall Accuracies')
-        print(accuracies)
+        print("%s:  %f  %f" % (accuracies['name'],accuracies['train'],accuracies['test']))
+
+        fittedAccuracies = articleSVM(fittedAdata,y,'Fitted Overall Accuracies')
+        print("%s:  %f  %f" % (fittedAccuracies['name'],fittedAccuracies['train'],fittedAccuracies['test']))
+
 
     #Most common reoccuring words
-    #countedAllWords.items() ==> [key,values]
     sorted_keys_by_values = sorted(countedAllWords.keys(),key=lambda kv: countedAllWords[kv], reverse=True)
     cutIndex=len(sorted_keys_by_values)//4
     chopped_keys=sorted_keys_by_values[:cutIndex]
@@ -105,27 +116,93 @@ def getArticles(priceData, dailyData, stocks):
     chopped_adata=adata[chopped_keys]
     #SVM with most common words
     chopped_accuracies=articleSVM(chopped_adata,y,'Chopped Overall Accuracies')
-    print(chopped_accuracies)
+    print("%s:  %f  %f" % (chopped_accuracies['name'], chopped_accuracies['train'], chopped_accuracies['test']))
+
+    reducedDimResults=dimReducer(adata,y, multiThread=True)
+    reducedDimResults.append(chopped_accuracies)
+    reducedDimResults = sorted(reducedDimResults, key= lambda kv: kv['test'], reverse=True)
+
+    for reducedResult in reducedDimResults:
+        print("%s: %f  %f" %(reducedResult['name'], reducedResult['train'], reducedResult['test']))
+    if 'adata_new' in reducedDimResults[0].keys():
+        total_best_fit_adata = reducedDimResults[0]['adata_new']
+    else:
+        total_best_fit_adata = reducedDimResults[0]['adata']
+    total_best_fit_cls = reducedDimResults[0]['cls']
+
+    for stock in dataDict:
+        temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
+        temp_adata = temp_adata.append(dataDict[stock]['adata'], sort=False)
+        for i in temp_adata.columns:
+            if i not in total_best_fit_adata.columns:
+                temp_adata = temp_adata.drop(columns=i)
+
+        temp_adata = temp_adata.fillna(0)
+        stock_on_total = accuracy_score(dataDict[stock]['y'], total_best_fit_cls.predict(temp_adata)) *100
+        accuracyDict[stock]['total_best_fit_cls'] = stock_on_total
+        print("%s on total_best_fit_cls:  %f" % (stock, stock_on_total))
+        if 'adata_new' in dataDict[stock].keys():
+            temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
+            temp_adata = temp_adata.append(dataDict[stock]['adata_new'], sort=False)
+            for i in temp_adata.columns:
+                if i not in total_best_fit_adata.columns:
+                    temp_adata = temp_adata.drop(columns=i)
+
+            temp_adata = temp_adata.fillna(0)
+            stock_on_total = accuracy_score(dataDict[stock]['y'], total_best_fit_cls.predict(temp_adata)) * 100
+            accuracyDict[stock]['total_best_fit_cls reduced'] = stock_on_total
+            print("%s on total_best_fit_cls with reduced adata:  %f" % (stock, stock_on_total))
 
 
-    selections = ['k_best','fpr','fdr','fwe','percentile']
 
-    fargs=[]
-    for select in selections:
-        fargs.append([adata, y, select, 'chi2'])
 
-    pool=Pool()
-    results=pool.map(dimHelper, fargs)
-    pool.close()
-    pool.join()
 
-    results.append(chopped_accuracies)
-    results = sorted(results, key= lambda kv: kv[2], reverse=True)
+    #TODO using fitted adata below
+    print("Using adata_new as adata below:::")
 
-    for i in results:
-        print(i[:-1])
+    reducedDimResults = dimReducer(fittedAdata, y, multiThread=True)
+    reducedDimResults = sorted(reducedDimResults, key=lambda kv: kv['test'], reverse=True)
 
-    best_fit_adata = i[0][3]
+    for reducedResult in reducedDimResults:
+        print("%s: %f  %f" % (reducedResult['name'], reducedResult['train'], reducedResult['test']))
+    if 'adata_new' in reducedDimResults[0].keys():
+        total_best_fit_adata = reducedDimResults[0]['adata_new']
+    else:
+        total_best_fit_adata = reducedDimResults[0]['adata']
+    total_best_fit_cls = reducedDimResults[0]['cls']
+
+    for stock in dataDict:
+        temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
+        temp_adata = temp_adata.append(dataDict[stock]['adata'], sort=False)
+        for i in temp_adata.columns:
+            if i not in total_best_fit_adata.columns:
+                temp_adata = temp_adata.drop(columns=i)
+
+        temp_adata = temp_adata.fillna(0)
+        stock_on_total = accuracy_score(dataDict[stock]['y'], total_best_fit_cls.predict(temp_adata)) * 100
+        accuracyDict[stock]['total_best_fit_cls fitted'] = stock_on_total
+        print("%s on total_best_fit_cls:  %f" % (stock, stock_on_total))
+        if 'adata_new' in dataDict[stock].keys():
+            temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
+            temp_adata = temp_adata.append(dataDict[stock]['adata_new'], sort=False)
+            for i in temp_adata.columns:
+                if i not in total_best_fit_adata.columns:
+                    temp_adata = temp_adata.drop(columns=i)
+
+            temp_adata = temp_adata.fillna(0)
+
+            stock_on_total = accuracy_score(dataDict[stock]['y'],
+                                            total_best_fit_cls.predict(temp_adata)) * 100
+            accuracyDict[stock]['total_best_fit_cls reduced fitted'] = stock_on_total
+            print("%s on total_best_fit_cls with reduced adata:  %f" % (stock, stock_on_total))
+
+    for stock in accuracyDict.keys():
+        sorted_accuracies = sorted(accuracyDict[stock].items(), key=lambda kv: kv[1], reverse=True)
+        print(stock)
+        for i in sorted_accuracies:
+            print("%s:   %f"%(i[0], i[1]))
+
+    #TODO endof fitted adata
 
 
 
@@ -133,7 +210,6 @@ def getArticles(priceData, dailyData, stocks):
 
 
 
-    #TODO Feature selection
     #TODO Feature Extraction
     #TODO Dimensionality Reduction
 
@@ -142,25 +218,41 @@ def getArticles(priceData, dailyData, stocks):
 
     return
 
+def dimReducer(adata, y, multiThread=False):
+    """
+    Uses feature selection to reduce the number of dimensions  used.
+    Multi-threaded
+    :param adata:
+    :param y:
+    :return:
+    """
+    selections = ['k_best', 'fpr', 'fdr', 'fwe', 'percentile']
 
-def dimHelper(fargs):
+    fargs = []
+    for select in selections:
+        fargs.append([adata, y, select, 'chi2'])
+
+    if multiThread:
+        pool = Pool()
+        results = pool.map(dimReducerChild, fargs)
+        pool.close()
+        pool.join()
+    else:
+        results=[]
+        for i in fargs:
+            results.append(dimReducerChild(i))
+    return results
+
+def dimReducerChild(fargs):
     adata = fargs[0]
     y = fargs[1]
     select = fargs[2]
     classm = fargs[3]
-    try:
-        if select=='k_best':
-            adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select, param=200).fit_transform(adata, y)
-
-        elif select=='percentile':
-            adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select,param=10).fit_transform(adata, y)
-        else:
-            adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select).fit_transform(adata,y)
-        accuracies = articleSVM(adata_new,y,select + " " + classm)
-        accuracies.append(adata_new)
-        return accuracies
-    except:
-        print(select + " " + classm + " Failed")
+    additionalParams={'k_best':200, 'percentile':10, 'fpr':0.005, 'fdr':0.005, 'fwe':0.005}
+    adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select, param=additionalParams[select]).fit_transform(adata, y)
+    accuracies = articleSVM(adata_new,y,select + " " + classm)
+    accuracies['adata_new']=pd.DataFrame(data=adata_new)
+    return accuracies
 
 
 def ripArticles(stocks):
@@ -454,15 +546,40 @@ def parseArticles(fargs):
     if all(y[0] == ytemp for ytemp in y):
         print("%s All outputs the same" % stockName)
         return 0, 0, 0
+    if adata.shape[1] > 700:
+        print(adata.shape)
+        accuracies=dimReducer(adata,y)
+        accuracies=sorted(accuracies, key=lambda kv : kv['test'], reverse=True)[0]
+        if 'name' not in accuracies:
+            raise("Error occured when trying to reduce dimensionality. Figure something out.")
+        accuracies['name']=stockName + " reduced with " + accuracies['name']
+    else:
+        accuracies=articleSVM(adata,y,stockName)
 
-    accuracies=articleSVM(adata,y,stockName)
+    if accuracies['test'] < minAccuracy:
+        if adata.shape[1]  >  700:
+            accuracies=articleSVM(adata,y,stockName)
+            if accuracies['test'] < minAccuracy:
+                # If accuracy is less than minimum
+                print("%s had less than acceptable accuracy. %f " % (stockName, accuracies['test']))
+                return None
+        else:
+            #If accuracy is less than minimum
+            print("%s had less than acceptable accuracy. %f " % (stockName, accuracies['test']))
+            return None
+    print("%s:  %f  %f" % (accuracies['name'], accuracies['train'], accuracies['test']))
 
-    if accuracies[2] < 30:
-        print("%s had less than acceptable accuracy. %f " % (stockName, accuracies[2]))
-        return 0, 0, 0
-    print(accuracies)
+    ret = {'adata':adata, 'y':y, 'countedAllWords':countedAllWords, 'name':stockName,
+                'accuracy':accuracies['test'], 'cls':accuracies['cls']}
 
-    return [adata, y, countedAllWords]
+    if 'adata_new' in accuracies:
+        #Add the reduced adata to return
+        if type(accuracies['adata_new']) == np.ndarray:
+            ret['adata_new'] = pd.DataFrame(data=accuracies['adata_new'])
+        else:
+            ret['adata_new'] = accuracies['adata_new']
+
+    return ret
 
 
 def articleSVM(X,y, name):
@@ -491,5 +608,5 @@ def articleSVM(X,y, name):
 
     accuracy_test = accuracy_score(y_test, cls.predict(X_test))
 
-    accuracies = [name, accuracy_train * 100, accuracy_test * 100]
+    accuracies = {'name':name, 'train':accuracy_train * 100, 'test':accuracy_test * 100, 'cls': cls}
     return accuracies

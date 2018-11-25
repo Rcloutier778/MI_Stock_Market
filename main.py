@@ -138,9 +138,9 @@ def main():
     #Intraday data prediction
     trainSVC(priceData)
     # trainTensorFlow(priceData)
-    if graphPlots:
-        plt.pause(0.001)
-        plt.waitforbuttonpress()
+    #if graphPlots:
+    #    plt.pause(0.001)
+    #    plt.waitforbuttonpress()
 
     #Daily data prediction
     trainSVC(dailyData)
@@ -149,10 +149,53 @@ def main():
         plt.pause(0.001)
         plt.waitforbuttonpress()
 
+    return 0
 
+def trainSVC(priceData):
+    """
+    Parent SVC function
+    :param priceData:
+    :return:
+    """
+    accuracies=[]
+    pool=Pool()
+    fargs=[]
+
+    for ndata in priceData:
+        fargs.append([ndata,priceData])
+    results = pool.map(trainSCVchild,fargs)
+    pool.close()
+    pool.join()
+    for i in results:
+        accuracies.append(i[0])
+        priceData[i[0][0]]=i[1]
+
+    accuracies = sorted(accuracies,key=lambda so: so[2])
+    print('Avg test accuracy:',sum(i[2] for i in accuracies)/len(accuracies))
+    for acc in accuracies:
+        print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
+        if graphPlots:
+            plt.figure(acc[0],figsize=(10, 5))
+            data = priceData[acc[0]]
+            data.cum_ret.plot(color='r',label='Returns')
+            data.cum_strat_ret.plot(color='g',label='Strategy Returns')
+            plt.title(acc[0])
+            plt.legend(['Returns','Strategy'])
+            plt.grid(True)
+            plt.show(block=False)
+
+
+    print()
+
+    return accuracies
 
         
-def multiSVC(d):
+def trainSCVchild(d):
+    """
+    Child SCV function
+    :param d:
+    :return:
+    """
     ndata = d[0]
     priceData = d[1]
     data = priceData[ndata]
@@ -216,39 +259,6 @@ def multiSVC(d):
         return accuracies,0
 
 
-def trainSVC(priceData):
-
-    accuracies=[]
-    pool=Pool()
-    fargs=[]
-
-    for ndata in priceData:
-        fargs.append([ndata,priceData])
-    results = pool.map(multiSVC,fargs)
-    pool.close()
-    pool.join()
-    for i in results:
-        accuracies.append(i[0])
-        priceData[i[0][0]]=i[1]
-
-    accuracies = sorted(accuracies,key=lambda so: so[2])
-    print('Avg test accuracy:',sum(i[2] for i in accuracies)/len(accuracies))
-    for acc in accuracies:
-        print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
-        if graphPlots:
-            plt.figure(acc[0],figsize=(10, 5))
-            data = priceData[acc[0]]
-            data.cum_ret.plot(color='r',label='Returns')
-            data.cum_strat_ret.plot(color='g',label='Strategy Returns')
-            plt.title(acc[0])
-            plt.legend(['Returns','Strategy'])
-            plt.grid(True)
-            plt.show(block=False)
-
-
-    print()
-
-    return accuracies
 
 
 def readPriceData(dataconcat):
