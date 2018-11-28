@@ -4,8 +4,8 @@ close all ; clear all; clc;
 nntraintool('close')
 warning('off','all')
 warning
-cd 'D:\Machine Intelligence\Term Project\matlab'
-addpath 'D:\Machine Intelligence\HW6\libsvm-3.18\windows'
+cd 'E:\Machine Intelligence\Term Project\matlab'
+addpath 'E:\Machine Intelligence\HW6\libsvm-3.18\windows'
 % We will use mnist hand written digits, '0' through '9'
 files={'AMD','BAC','CVX','DOW','DUK','GOOGL','JPM','M','NASDAQ','PYPL','QQQ','S&P','V','VZ','XOM'};
 
@@ -15,7 +15,7 @@ results={'Stock','SVM-Linear','SVM-Poly','SVM-Radial','SVM-sigmoid',...
     'LR_lambda=0.01','BaggedTree',...
     'nnet1','nnet2','ff1','ff2','ff3','nnet3','nnet4','ff4','ff5'};
 
-parfor f = 1:size(files,2)
+for f = 1:size(files,2)
     str=['data/',files{f},'.txt'];
     data = load(str);
 

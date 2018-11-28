@@ -32,12 +32,13 @@ import json
 from collections import defaultdict
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
+from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 import pickle
 
 
 refreshArticles = False #Wipe data and start again
-updateArticles = False #Update current data
+updateArticles = False  #Update current data
 refreshModels = False
 
 numPages=100 #Number of pages of articles to use
@@ -78,6 +79,8 @@ def getArticles(priceData, dailyData, stocks):
         model=modelsDict[stock]
         model_probability=[]
         model_probability_dates=[]
+        if stock=='overall': #TODO
+            continue
         articleDict = articles[stocks[stock]][0]
         startDate = datetime.strptime(dailyData[stock].index[0], "%Y-%m-%d")
         startDate = date(startDate.year, startDate.month, startDate.day)
@@ -111,21 +114,39 @@ def getArticles(priceData, dailyData, stocks):
 
             #Convert adata to modelColsDict DataFrame columns
             model_adata = model_adata[modelsColsDict[stock]]
-        probability = model.predict_proba(model_adata)
+        model_probability = model.predict(model_adata)
+        '''print(probability)
         for prob in probability:
             if len(prob==2):
                 prob=[prob[0],0,prob[1]]
+            prob = [prob[0]*100, prob[1]*100, prob[2]*100]
             model_probability.append(prob)
-            
-        model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates, columns=['Down','Zero','Up'])
+           '''
+        #model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates, columns=['Down','Zero','Up'])
         
         
-        newDailyData[stock]['Down'] = model_probability_df['Down']
-        newDailyData[stock]['Zero'] = model_probability_df['Zero']
-        newDailyData[stock]['Up'] = model_probability_df['Up']
+        #newDailyData[stock]['Down'] = model_probability_df['Down']
+        #newDailyData[stock]['Zero'] = model_probability_df['Zero']
+        #newDailyData[stock]['Up'] = model_probability_df['Up']
+
+
+
+
+
+
+        model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates,
+                                            columns=['news'])
+
+        newDailyData[stock]['news'] = model_probability_df['news']
+        
+        
+        
+        
+        
+        
         newDailyData[stock] = newDailyData[stock].fillna(0)
         firstArticleDate = sorted(articleDict.keys(), key=lambda kv: kv)[0]
-
+        #print(newDailyData[stock])
         try:
             articleIndex = newDailyData[stock].index.get_loc(firstArticleDate)
             #print(articleIndex)
@@ -176,7 +197,7 @@ def getArticleModels(priceData, dailyData, stocks):
     #setup X and y
     adata = adata.fillna(0)
     y = np.array(y)
-
+    ovAC=[]
     print("Skipping overall accuracy measurments for testing ")
     if False:
         print(len(countedAllWords))
@@ -186,6 +207,7 @@ def getArticleModels(priceData, dailyData, stocks):
         #SVM with all words
         accuracies=articleSVM(adata,y,'Overall Accuracies')
         print("%s:  %f  %f" % (accuracies['name'],accuracies['train'],accuracies['test']))
+        
 
     #Most common reoccuring words
     sorted_keys_by_values = sorted(countedAllWords.keys(),key=lambda kv: countedAllWords[kv], reverse=True)
@@ -199,6 +221,7 @@ def getArticleModels(priceData, dailyData, stocks):
 
     reducedDimResults=dimReducer(adata,y, multiThread=True)
     reducedDimResults.append(chopped_accuracies)
+    reducedDimResults.append(accuracies)
     reducedDimResults = sorted(reducedDimResults, key= lambda kv: kv['test'], reverse=True)
 
     for reducedResult in reducedDimResults:
@@ -212,30 +235,7 @@ def getArticleModels(priceData, dailyData, stocks):
 
 
     print("Using None for rs in articlSVM!!!!!!")
-
-    #
-    # print(dataDict["PYPL"]['sv'].predict_proba(dataDict['PYPL']['adata_new'][-2:-1]))
-    # print(dataDict['PYPL']['y'][-2:])
-    #
-    # #temp_adata = pd.DataFrame(columns=reducedDimResults[-1]['adata'].columns).merge(dataDict['PYPL']['adata'],how='left')
-    #
-    # for i in dataDict:
-    #     temp_adata = pd.DataFrame(columns=reducedDimResults[2]['adata_new'].columns)
-    #     temp_adata = temp_adata.append(dataDict[i]['adata'], ignore_index=True, sort=False)
-    #     for i in temp_adata.columns:
-    #         if i not in reducedDimResults[2]['adata_new'].columns:
-    #             temp_adata = temp_adata.drop(columns=i)
-    #     temp_adata = temp_adata.fillna(0)
-    #
-    #     print(accuracy_score(dataDict[i]['y'], reducedDimResults[2]['sv'].predict(temp_adata))*100)
-
-
-
-
-    #TODO Feature Extraction
-    #TODO Dimensionality Reduction
-
-    # TODO return_estimator
+    
     modelsDict={}
     modelsColsDict={}
     for stock in dataDict:
@@ -427,7 +427,14 @@ def getArticleLinks(names):
     :return: Dict of company names to lists of associated articles
     """
     print("Getting article links")
-    driver = webdriver.Chrome()
+
+    options = Options()
+    options.add_argument("--profile-directory=Default")
+    options.add_argument(
+        "user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/69.0.3497.100 Safari/537.36")
+    
+    driver = webdriver.Chrome(os.getcwd()+'/chromedriver.exe', options=options)
     qpage = 'https://www.nytimes.com/search?query='
     quote_page = 'https://www.nytimes.com/'
     linkDict = {}
@@ -450,7 +457,8 @@ def getArticleLinks(names):
                 parentButtonXpaths = driver.find_elements_by_xpath(""".//*[@id="site-content"]/div/div/div[2]/*""")
                 button = driver.find_element_by_xpath("""//*[@id="site-content"]/div/div/div[2]/div[""" + str(
                     len(parentButtonXpaths)) + """]/div/button""")
-                break
+                if button.text == "SHOW MORE":
+                    break
             except:
                 time.sleep(1)
                 pass
@@ -458,7 +466,6 @@ def getArticleLinks(names):
         if not button:
             # If button was not found, go to next stock
             continue
-
         # Scroll the page down
         ActionChains(driver).key_down(Keys.PAGE_DOWN)
         time.sleep(0.5)
@@ -476,19 +483,21 @@ def getArticleLinks(names):
             if not clicked:
                 break
         ActionChains(driver).key_up(Keys.PAGE_DOWN)
+        
+        
+        
+        """//*[@id="site-content"]/div/div/div[2]/div[2]/ol/li[143]/div/div/a"""
 
         # Get the page html source for beautiful soup parsing
         r = driver.page_source
         soup = BeautifulSoup(r, 'html.parser')
-        reg = re.compile('.*SearchResults-item.*')
+        reg = re.compile('.*css-.*')
         f = soup.find_all('li', attrs={'class': reg})
         links = []
         # Get links from search
         for i in f:
-            reg = re.compile('.*Item-section--.*')
             try:
-                section = i.find('p', attrs={'class': reg}).text.lower()
-
+                section = i.find('p', attrs={'class': 'css-myxawk'}).text.lower()
                 if section in ['technology', 'business', 'climate', 'energy & environment']:
                     links.append(quote_page + i.find('a').get('href'))
             except:
@@ -555,12 +564,10 @@ def parseArticles(fargs):
         if len(dayIndex) > 2:
             for index in range(1, len(dayIndex)):
                 diff = dailyData['Close'][dayIndex[index]] - dailyData['Open'][dayIndex[0]]
-                if diff > 0:
+                if diff >= 0:
                     dayDiff.append(1)
                 elif diff < 0:
                     dayDiff.append(-1)
-                else:
-                    dayDiff.append(0)
         else:
             # If article is too recent, disregard it
             continue

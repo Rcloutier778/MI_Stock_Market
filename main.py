@@ -91,7 +91,7 @@ split_percentage = 0.8
 refreshData = False
 
 #Graphs plots
-graphPlots = True
+graphPlots = False
 
 def main():
     # From the data intervals, concat the following together to use
@@ -132,12 +132,11 @@ def main():
 
     #TODO Create 3 threads, 1 for getArticles, 1 for trainSCV w/ intraday, 1 for trainSCV w/ daily
     #
-
-    newDailyData = getArticles(priceData, dailyData, stocks)
-
+    newDailyData = {}
+    for i in dailyData:
+        newDailyData[i] = dailyData[i].copy(deep=True)
+    newDailyData = getArticles(priceData, newDailyData, stocks)
     
-
-
     #Intraday data prediction
     #trainSVC(priceData)
     # trainTensorFlow(priceData)
@@ -147,8 +146,11 @@ def main():
 
     #Daily data prediction
     trainSVC(dailyData)
-
+    
+    #Daily data prediction with news articles
     trainSVC(newDailyData)
+    
+    
     if graphPlots:
         plt.pause(0.001)
         plt.waitforbuttonpress()
@@ -164,7 +166,7 @@ def trainSVC(priceData):
     accuracies=[]
     pool=Pool()
     fargs=[]
-
+    
     for ndata in priceData:
         fargs.append([ndata,priceData])
     results = pool.map(trainSCVchild,fargs)
@@ -203,7 +205,7 @@ def trainSCVchild(d):
     ndata = d[0]
     priceData = d[1]
     data = priceData[ndata]
-
+    
     #Calculating future price bool difference
     y = np.where(data['Close'].shift(-1) > data['Close'], 1, -1)
     
@@ -215,8 +217,9 @@ def trainSCVchild(d):
 
     data['Open-Close'] = data.Open - data.Close
     data['High-Low'] = data.High - data.Low
-    if 'Down' in data.columns:
-        X = data[['Open-Close','High-Low','Down','Zero','Up']]
+    if 'news' in data.columns:
+        X = data[['Open-Close','High-Low','news']]
+        print('down')
     else:
         X = data[['Open-Close','High-Low']]
 
