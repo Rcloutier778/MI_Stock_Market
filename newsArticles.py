@@ -4,9 +4,10 @@ from multiprocessing import Pool
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 import matplotlib.cbook
 warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, date
 
 # Machine learning classification libraries
+warnings.filterwarnings("ignore", category=RuntimeWarning, module="sklearn")
 from sklearn.svm import SVC
 from sklearn.metrics import accuracy_score
 from  sklearn.model_selection import train_test_split
@@ -37,7 +38,7 @@ import pickle
 
 refreshArticles = False #Wipe data and start again
 updateArticles = False #Update current data
-refreshModels = True
+refreshModels = False
 
 numPages=100 #Number of pages of articles to use
 minAccuracy=30 #Minimum accuracy
@@ -71,46 +72,71 @@ def getArticles(priceData, dailyData, stocks):
             modelsDict, modelsColsDict = getArticleModels(priceData, dailyData, stocks)
 
     articles = ripArticles(stocks)
-    print(articles.keys())
     newDailyData=dailyData
-    for stock in modelsDict:
+    for stock in modelsDict.keys():
+        #Get stocks that have models
         model=modelsDict[stock]
         model_probability=[]
         model_probability_dates=[]
-        for articleDate in articles[stock]:
-            if datetime.strptime(articleDate,"%Y-%m-%d") >= dailyData.index[0]:
-                adata = pd.DataFrame() #DataFrame of 1 article 
-                #TODO implement day3, day5
-                for article in articles[stock][articleDate]:
-                    adata = adata.append(pd.DataFrame.from_dict(article, orient='columns'), ignore_index=False, sort=False).fillna(0)
-                    
-                    #temp_adata = pd.DataFrame(columns=modelsColsDict[stock]).merge(dataDict['PYPL']['adata'],how='left')
-                    
-                    #
-                    # for i in dataDict:
-                    #     temp_adata = pd.DataFrame(columns=reducedDimResults[2]['adata_new'].columns)
-                    #     temp_adata = temp_adata.append(dataDict[i]['adata'], ignore_index=True, sort=False)
-                    #     for i in temp_adata.columns:
-                    #         if i not in reducedDimResults[2]['adata_new'].columns:
-                    #             temp_adata = temp_adata.drop(columns=i)
-                    #     temp_adata = temp_adata.fillna(0)
-                    #
-                    #     print(accuracy_score(dataDict[i]['y'], reducedDimResults[2]['sv'].predict(temp_adata))*100)
-                #Convert adata to modelColsDict DataFrame columns
-                model_adata = pd.DataFrame(columns=modelsColsDict[stock])
-                model_adata = model_adata.merge(right=adata, how='left')
-                probability = model.predict_proba(model_adata)
-                if len(probability==2):
-                    probability=[probability[0],0,probability[1]]
-                model_probability.append(probability)
-                model_probability_dates.append(datetime.strptime(articleDate,"%Y-%m-%d"))
-        model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates)
+        articleDict = articles[stocks[stock]][0]
+        startDate = datetime.strptime(dailyData[stock].index[0], "%Y-%m-%d")
+        startDate = date(startDate.year, startDate.month, startDate.day)
+        endDate = datetime.strptime(dailyData[stock].index[-1], "%Y-%m-%d")
+        endDate = date(endDate.year, endDate.month, endDate.day)
+        model_adata = pd.DataFrame(columns=modelsColsDict[stock])
+        
+        for articleDate in articleDict.keys():
+            #Get articles for those stocks
+            # Use articles that occur after the earliest price datapoint
+
+            dt = datetime.strptime(articleDate, '%Y-%m-%d')
+            dt = date(dt.year, dt.month, dt.day)
+            day3 = (dt + timedelta(days=3))
+            day3 = date(day3.year, day3.month, day3.day)
+            day5 = (dt + timedelta(days=5))
+            day5 = date(day5.year, day5.month, day5.day)
+            days = [dt, day3, day5]
+            for article in articleDict[articleDate]:
+                temparticle = {}
+                for i in article:
+                    temparticle[i] = [article[i]]
+                for day in days:
+                    if day >= startDate  and day <= endDate:
+                        day_df = pd.DataFrame(pd.DataFrame.from_dict(temparticle, orient='columns'), index=[day])
+                        try:
+                            model_adata = model_adata.append(day_df, ignore_index=False, sort=False, verify_integrity=True).fillna(0)
+                            model_probability_dates.append(day)
+                        except:
+                            model_adata = model_adata.add(day_df,fill_value=0)
+
+            #Convert adata to modelColsDict DataFrame columns
+            model_adata = model_adata[modelsColsDict[stock]]
+        probability = model.predict_proba(model_adata)
+        for prob in probability:
+            if len(prob==2):
+                prob=[prob[0],0,prob[1]]
+            model_probability.append(prob)
+            
+        model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates, columns=['Down','Zero','Up'])
+        
+        
         newDailyData[stock]['Down'] = model_probability_df['Down']
         newDailyData[stock]['Zero'] = model_probability_df['Zero']
         newDailyData[stock]['Up'] = model_probability_df['Up']
+        newDailyData[stock] = newDailyData[stock].fillna(0)
+        firstArticleDate = sorted(articleDict.keys(), key=lambda kv: kv)[0]
+
+        try:
+            articleIndex = newDailyData[stock].index.get_loc(firstArticleDate)
+            #print(articleIndex)
+            newIndexes = newDailyData[stock].index.values[articleIndex]
+            #print(newIndexes)
+            newDailyData[stock] = newDailyData[stock].loc[newIndexes:]
+            print('%s shortened' % stock)
+        except:
+            print('%s not shortened' % stock)
         
-
-
+    return newDailyData
 
 
 
@@ -217,15 +243,10 @@ def getArticleModels(priceData, dailyData, stocks):
         pickle.dump(dataDict[stock]['sv'], open('models/'+stock+'.pkl','wb'))
         if 'adata_new' in dataDict[stock].keys():
             modelsColsDict[stock]= dataDict[stock]['adata_new'].columns.values.tolist()
-            print('%s adata_new' % stock)
-            print (modelsColsDict[stock])
         else:
             modelsColsDict[stock]= dataDict[stock]['adata'].columns.values.tolist()
-            print('%s adata' % stock)
-            print(modelsColsDict[stock])
     modelsDict['overall'] = total_best_fit_sv
     modelsColsDict['overall'] = total_best_fit_adata.columns.values.tolist()
-    #print (modelsColsDict)
     with open('models/modelsCols.json','w+') as f:
         json.dump(modelsColsDict, f, separators=(',', ':'))
     pickle.dump(total_best_fit_sv, open('models/overall.pkl', 'wb'))
@@ -261,16 +282,21 @@ def dimReducer(adata, y, multiThread=False):
 
 def dimReducerChild(fargs):
     adata = fargs[0]
-    print(adata.columns.values)
+    adata = adata.fillna(0)
     y = fargs[1]
     select = fargs[2]
     classm = fargs[3]
-    additionalParams={'k_best':200, 'percentile':10, 'fpr':0.0005, 'fdr':0.005, 'fwe':0.005}
+    additionalParams={'k_best':200, 'percentile':10, 'fpr':0.005, 'fdr':0.005, 'fwe':0.005}
     selector = GenericUnivariateSelect(score_func=eval(classm), mode=select, param=additionalParams[select])
     adata_new = selector.fit_transform(adata, y)
     cols = selector.get_support(True)
+    adata_cols = list(adata.columns.values)
+    adata_new_cols=[]
+    for i in cols:
+        adata_new_cols.append(adata_cols[i])
+    adata_new = pd.DataFrame(data=adata_new, index=adata.index, columns=adata_new_cols)
     accuracies = articleSVM(adata_new,y,select + " " + classm)
-    accuracies['adata_new']=adata[cols]
+    accuracies['adata_new'] = adata_new
     return accuracies
 
 
@@ -571,9 +597,9 @@ def parseArticles(fargs):
         print("%s All outputs the same" % stockName)
         return 0, 0, 0
     if adata.shape[1] > 700:
-        print(adata.shape)
         accuracies=dimReducer(adata,y)
         accuracies=sorted(accuracies, key=lambda kv : kv['test'], reverse=True)[0]
+        print('%s, %dx%d --> %dx%d' % (stockName, adata.shape[0], adata.shape[1], accuracies['adata_new'].shape[0], accuracies['adata_new'].shape[1]))
         if 'name' not in accuracies:
             raise("Error occured when trying to reduce dimensionality. Figure something out.")
         accuracies['name']=stockName + " reduced with " + accuracies['name']

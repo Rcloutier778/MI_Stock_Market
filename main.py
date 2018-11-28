@@ -133,10 +133,13 @@ def main():
     #TODO Create 3 threads, 1 for getArticles, 1 for trainSCV w/ intraday, 1 for trainSCV w/ daily
     #
 
-    getArticles(priceData, dailyData, stocks)
+    newDailyData = getArticles(priceData, dailyData, stocks)
+
+    
+
 
     #Intraday data prediction
-    trainSVC(priceData)
+    #trainSVC(priceData)
     # trainTensorFlow(priceData)
     #if graphPlots:
     #    plt.pause(0.001)
@@ -144,7 +147,8 @@ def main():
 
     #Daily data prediction
     trainSVC(dailyData)
-    # trainTensorFlow(priceData)
+
+    trainSVC(newDailyData)
     if graphPlots:
         plt.pause(0.001)
         plt.waitforbuttonpress()
@@ -211,7 +215,10 @@ def trainSCVchild(d):
 
     data['Open-Close'] = data.Open - data.Close
     data['High-Low'] = data.High - data.Low
-    X = data[['Open-Close','High-Low']]
+    if 'Down' in data.columns:
+        X = data[['Open-Close','High-Low','Down','Zero','Up']]
+    else:
+        X = data[['Open-Close','High-Low']]
 
     split = int(split_percentage * len(data))
 
