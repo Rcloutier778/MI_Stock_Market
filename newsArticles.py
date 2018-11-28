@@ -35,7 +35,7 @@ from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
 import pickle
-
+import copy
 
 refreshArticles = False #Wipe data and start again
 updateArticles = False  #Update current data
@@ -73,7 +73,7 @@ def getArticles(priceData, dailyData, stocks):
             modelsDict, modelsColsDict = getArticleModels(priceData, dailyData, stocks)
 
     articles = ripArticles(stocks)
-    newDailyData=dailyData
+    newDailyData=copy.deepcopy(dailyData)
     for stock in modelsDict.keys():
         #Get stocks that have models
         model=modelsDict[stock]
@@ -137,13 +137,8 @@ def getArticles(priceData, dailyData, stocks):
         model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates,
                                             columns=['news'])
 
-        newDailyData[stock]['news'] = model_probability_df['news']
-        
-        
-        
-        
-        
-        
+        newDailyData[stock].loc[:, ('news')] = model_probability_df['news']
+
         newDailyData[stock] = newDailyData[stock].fillna(0)
         firstArticleDate = sorted(articleDict.keys(), key=lambda kv: kv)[0]
         #print(newDailyData[stock])

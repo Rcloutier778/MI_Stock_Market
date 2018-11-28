@@ -45,6 +45,8 @@ from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
 from newsArticles import *
+import copy
+
 # Get historical stock data and predict off that
 # Get it into realtime
 # make the model dynamic with the realtime data
@@ -92,6 +94,7 @@ refreshData = False
 
 #Graphs plots
 graphPlots = False
+matlab=False
 
 def main():
     # From the data intervals, concat the following together to use
@@ -108,8 +111,8 @@ def main():
     print("Reading  price data")
     priceData,dailyData=readPriceData(dataconcat)
 
-    #@@@for matlab, delete later
-    matlab=False
+    #Convert data for matlab nnet
+    
     if matlab:
         for ndata in priceData:
             with open('matlab/data/'+ndata+'.txt', 'w+') as f:
@@ -128,14 +131,18 @@ def main():
         return
 
     #@@@end for matlab
-
+    
+    
+    # Daily data prediction
+    trainSVC(dailyData)
+    if graphPlots:
+        plt.pause(0.001)
+        plt.waitforbuttonpress()
 
     #TODO Create 3 threads, 1 for getArticles, 1 for trainSCV w/ intraday, 1 for trainSCV w/ daily
     #
-    newDailyData = {}
-    for i in dailyData:
-        newDailyData[i] = dailyData[i].copy(deep=True)
-    newDailyData = getArticles(priceData, newDailyData, stocks)
+
+    newDailyData = getArticles(priceData, dailyData, stocks)
     
     #Intraday data prediction
     #trainSVC(priceData)
@@ -144,8 +151,7 @@ def main():
     #    plt.pause(0.001)
     #    plt.waitforbuttonpress()
 
-    #Daily data prediction
-    trainSVC(dailyData)
+    
     
     #Daily data prediction with news articles
     trainSVC(newDailyData)
@@ -172,9 +178,10 @@ def trainSVC(priceData):
     results = pool.map(trainSCVchild,fargs)
     pool.close()
     pool.join()
+    newPriceData={}
     for i in results:
         accuracies.append(i[0])
-        priceData[i[0][0]]=i[1]
+        newPriceData[i[0][0]]=i[1]
 
     accuracies = sorted(accuracies,key=lambda so: so[2])
     print('Avg test accuracy:',sum(i[2] for i in accuracies)/len(accuracies))
@@ -182,7 +189,7 @@ def trainSVC(priceData):
         print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
         if graphPlots:
             plt.figure(acc[0],figsize=(10, 5))
-            data = priceData[acc[0]]
+            data = newPriceData[acc[0]]
             data.cum_ret.plot(color='r',label='Returns')
             data.cum_strat_ret.plot(color='g',label='Strategy Returns')
             plt.title(acc[0])
@@ -218,7 +225,9 @@ def trainSCVchild(d):
     data['Open-Close'] = data.Open - data.Close
     data['High-Low'] = data.High - data.Low
     if 'news' in data.columns:
-        X = data[['Open-Close','High-Low','news']]
+        X = data[['Open-Close','High-Low']]
+        X.loc[:,('news')] = np.array(data.loc[:,('news')].shift(-1))
+        X.loc[:, ('news')] = X.loc[:,('news')].fillna(0)
         print('down')
     else:
         X = data[['Open-Close','High-Low']]
@@ -246,11 +255,11 @@ def trainSCVchild(d):
     data['Predicted_Signal'] = cls.predict(X)
 
     # Calculate log returns
-    data['Return'] = np.log(data['Close'].shift(-1) / data['Close']) * 100
-    data['cum_ret'] = data[split:]['Return'].cumsum()
+    data.loc[:,('Return')] = np.log(data.loc[:,('Close')].shift(-1) / data.loc[:,('Close')]) * 100
+    data.loc[:, ('cum_ret')] = data[split:]['Return'].cumsum()
 
-    data['Strategy_Return'] = (data['Predicted_Signal']) * data['Return']
-    data['cum_strat_ret'] = data[split:]['Strategy_Return'].cumsum()
+    data.loc[:,('Strategy_Return')] = data.loc[:,('Predicted_Signal')] * data.loc[:,('Return')]
+    data.loc[:, ('cum_strat_ret')] = data[split:]['Strategy_Return'].cumsum()
 
     std = data.cum_strat_ret.std()
     Sharpe = (data.cum_strat_ret - data.cum_ret) / std

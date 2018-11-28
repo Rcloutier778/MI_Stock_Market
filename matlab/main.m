@@ -13,9 +13,9 @@ files={'AMD','BAC','CVX','DOW','DUK','GOOGL','JPM','M','NASDAQ','PYPL','QQQ','S&
 results={'Stock','SVM-Linear','SVM-Poly','SVM-Radial','SVM-sigmoid',...
     'LogRegress_lambda=0','LR_lambda=1','LR_lambda=0.1',...
     'LR_lambda=0.01','BaggedTree',...
-    'nnet1','nnet2','ff1','ff2','ff3','nnet3','nnet4','ff4','ff5'};
+    'nnet1','nnet2','ff1','ff2','ff3','nnet3','nnet4','ff4','ff5','lm','rp','cgb','cgf','cgp','oss','gdx'};
 
-for f = 1:size(files,2)
+parfor f = 1:size(files,2)
     str=['data/',files{f},'.txt'];
     data = load(str);
 
@@ -114,10 +114,10 @@ for f = 1:size(files,2)
     options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
     accuracies = [accuracies, classify677_hwk7(X,y,options)];
 
-    options.method = 'feedForward';
-    options.nnet_algo = 'trainbfg';
-    options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
-    accuracies = [accuracies, classify677_hwk7(X,y,options)];
+%     options.method = 'feedForward';
+%     options.nnet_algo = 'trainbfg';
+%     options.nnet_hiddenLayerSize = round((size(X,1)+2)/2);
+%     accuracies = [accuracies, classify677_hwk7(X,y,options)];
 
     options.method = 'feedForward';
     options.nnet_algo = 'trainrp';
