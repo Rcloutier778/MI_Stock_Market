@@ -32,11 +32,12 @@ from collections import defaultdict
 from selenium import webdriver
 from selenium.webdriver.common.action_chains import ActionChains
 from selenium.webdriver.common.keys import Keys
-
+import pickle
 
 
 refreshArticles = False #Wipe data and start again
 updateArticles = False #Update current data
+refreshModels = True
 
 numPages=100 #Number of pages of articles to use
 minAccuracy=30 #Minimum accuracy
@@ -49,6 +50,71 @@ def getArticles(priceData, dailyData, stocks):
     :param stocks: List of stocks
     :return:
     """
+    modelsDict={}
+    if refreshModels:
+        modelsDict, modelsColsDict = getArticleModels(priceData, dailyData, stocks)
+    else:
+        for stock in stocks:
+            if os.path.isfile('models/'+stock+'.pkl'):
+                modelsDict[stock] = pickle.load(open('models/'+stock+'.pkl','rb'))
+            else:
+                print("%s does not have a saved model" % stock)
+        if os.path.isfile('models/overall.pkl'):
+            overallModel = pickle.load(open('models/overall.pkl', 'rb'))
+        else:
+            print("Overall model was not found")
+        if os.path.isfile('models/modelsCols.json'):
+            with open('models/modelsCols.json','r') as f:
+                modelsColsDict = json.load(f)
+        else:
+            print("modelCols.json not found, reloading all models. ")
+            modelsDict, modelsColsDict = getArticleModels(priceData, dailyData, stocks)
+
+    articles = ripArticles(stocks)
+    print(articles.keys())
+    newDailyData=dailyData
+    for stock in modelsDict:
+        model=modelsDict[stock]
+        model_probability=[]
+        model_probability_dates=[]
+        for articleDate in articles[stock]:
+            if datetime.strptime(articleDate,"%Y-%m-%d") >= dailyData.index[0]:
+                adata = pd.DataFrame() #DataFrame of 1 article 
+                #TODO implement day3, day5
+                for article in articles[stock][articleDate]:
+                    adata = adata.append(pd.DataFrame.from_dict(article, orient='columns'), ignore_index=False, sort=False).fillna(0)
+                    
+                    #temp_adata = pd.DataFrame(columns=modelsColsDict[stock]).merge(dataDict['PYPL']['adata'],how='left')
+                    
+                    #
+                    # for i in dataDict:
+                    #     temp_adata = pd.DataFrame(columns=reducedDimResults[2]['adata_new'].columns)
+                    #     temp_adata = temp_adata.append(dataDict[i]['adata'], ignore_index=True, sort=False)
+                    #     for i in temp_adata.columns:
+                    #         if i not in reducedDimResults[2]['adata_new'].columns:
+                    #             temp_adata = temp_adata.drop(columns=i)
+                    #     temp_adata = temp_adata.fillna(0)
+                    #
+                    #     print(accuracy_score(dataDict[i]['y'], reducedDimResults[2]['sv'].predict(temp_adata))*100)
+                #Convert adata to modelColsDict DataFrame columns
+                model_adata = pd.DataFrame(columns=modelsColsDict[stock])
+                model_adata = model_adata.merge(right=adata, how='left')
+                probability = model.predict_proba(model_adata)
+                if len(probability==2):
+                    probability=[probability[0],0,probability[1]]
+                model_probability.append(probability)
+                model_probability_dates.append(datetime.strptime(articleDate,"%Y-%m-%d"))
+        model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates)
+        newDailyData[stock]['Down'] = model_probability_df['Down']
+        newDailyData[stock]['Zero'] = model_probability_df['Zero']
+        newDailyData[stock]['Up'] = model_probability_df['Up']
+        
+
+
+
+
+
+def getArticleModels(priceData, dailyData, stocks):
     print("Ripping and summariing articles")
     alldata = ripArticles(stocks)  # Get articles and summarize and keywords
 
@@ -65,34 +131,25 @@ def getArticles(priceData, dailyData, stocks):
     pool.join()
 
     adata = pd.DataFrame()
-    fittedAdata = pd.DataFrame()
     y = []
     countedAllWords = defaultdict(int)
-    dataDict = {}
-    accuracyDict=defaultdict(dict)
+    dataDict = defaultdict(dict)
 
     for result in results:
-        tacc = result
-        if tacc==None:
+        if result==None:
             continue
-        dataDict[tacc['name']] = tacc
-        adata = adata.append(tacc['adata'], ignore_index=True, sort=False)
-        if 'adata_new' in tacc.keys():
-            fittedAdata = fittedAdata.append(tacc['adata_new'], ignore_index=True, sort=False)
-        else:
-            fittedAdata = fittedAdata.append(tacc['adata'], ignore_index=True, sort=False)
-        accuracyDict[tacc['name']]['stand_alone'] = tacc['accuracy']
+        dataDict[result['name']] = result
+        adata = adata.append(result['adata'], ignore_index=False, sort=False)
 
-        y.extend(tacc['y'])
-        for word in tacc['countedAllWords']:
-            countedAllWords[word]+=tacc['countedAllWords'][word]
+        y.extend(result['y'])
+        for word in result['countedAllWords']:
+            countedAllWords[word]+=result['countedAllWords'][word]
 
     print("Classifying total words")
 
     #setup X and y
     adata = adata.fillna(0)
     y = np.array(y)
-    fittedAdata = fittedAdata.fillna(0)
 
     print("Skipping overall accuracy measurments for testing ")
     if False:
@@ -103,10 +160,6 @@ def getArticles(priceData, dailyData, stocks):
         #SVM with all words
         accuracies=articleSVM(adata,y,'Overall Accuracies')
         print("%s:  %f  %f" % (accuracies['name'],accuracies['train'],accuracies['test']))
-
-        fittedAccuracies = articleSVM(fittedAdata,y,'Fitted Overall Accuracies')
-        print("%s:  %f  %f" % (fittedAccuracies['name'],fittedAccuracies['train'],fittedAccuracies['test']))
-
 
     #Most common reoccuring words
     sorted_keys_by_values = sorted(countedAllWords.keys(),key=lambda kv: countedAllWords[kv], reverse=True)
@@ -129,84 +182,27 @@ def getArticles(priceData, dailyData, stocks):
     else:
         total_best_fit_adata = reducedDimResults[0]['adata']
     total_best_fit_cls = reducedDimResults[0]['cls']
-
-    for stock in dataDict:
-        temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
-        temp_adata = temp_adata.append(dataDict[stock]['adata'], sort=False)
-        for i in temp_adata.columns:
-            if i not in total_best_fit_adata.columns:
-                temp_adata = temp_adata.drop(columns=i)
-
-        temp_adata = temp_adata.fillna(0)
-        stock_on_total = accuracy_score(dataDict[stock]['y'], total_best_fit_cls.predict(temp_adata)) *100
-        accuracyDict[stock]['total_best_fit_cls'] = stock_on_total
-        print("%s on total_best_fit_cls:  %f" % (stock, stock_on_total))
-        if 'adata_new' in dataDict[stock].keys():
-            temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
-            temp_adata = temp_adata.append(dataDict[stock]['adata_new'], sort=False)
-            for i in temp_adata.columns:
-                if i not in total_best_fit_adata.columns:
-                    temp_adata = temp_adata.drop(columns=i)
-
-            temp_adata = temp_adata.fillna(0)
-            stock_on_total = accuracy_score(dataDict[stock]['y'], total_best_fit_cls.predict(temp_adata)) * 100
-            accuracyDict[stock]['total_best_fit_cls reduced'] = stock_on_total
-            print("%s on total_best_fit_cls with reduced adata:  %f" % (stock, stock_on_total))
-
-
-
-
-
-    #TODO using fitted adata below
-    print("Using adata_new as adata below:::")
-
-    reducedDimResults = dimReducer(fittedAdata, y, multiThread=True)
-    reducedDimResults = sorted(reducedDimResults, key=lambda kv: kv['test'], reverse=True)
-
-    for reducedResult in reducedDimResults:
-        print("%s: %f  %f" % (reducedResult['name'], reducedResult['train'], reducedResult['test']))
-    if 'adata_new' in reducedDimResults[0].keys():
-        total_best_fit_adata = reducedDimResults[0]['adata_new']
-    else:
-        total_best_fit_adata = reducedDimResults[0]['adata']
-    total_best_fit_cls = reducedDimResults[0]['cls']
-
-    for stock in dataDict:
-        temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
-        temp_adata = temp_adata.append(dataDict[stock]['adata'], sort=False)
-        for i in temp_adata.columns:
-            if i not in total_best_fit_adata.columns:
-                temp_adata = temp_adata.drop(columns=i)
-
-        temp_adata = temp_adata.fillna(0)
-        stock_on_total = accuracy_score(dataDict[stock]['y'], total_best_fit_cls.predict(temp_adata)) * 100
-        accuracyDict[stock]['total_best_fit_cls fitted'] = stock_on_total
-        print("%s on total_best_fit_cls:  %f" % (stock, stock_on_total))
-        if 'adata_new' in dataDict[stock].keys():
-            temp_adata = pd.DataFrame(columns=total_best_fit_adata.columns)
-            temp_adata = temp_adata.append(dataDict[stock]['adata_new'], sort=False)
-            for i in temp_adata.columns:
-                if i not in total_best_fit_adata.columns:
-                    temp_adata = temp_adata.drop(columns=i)
-
-            temp_adata = temp_adata.fillna(0)
-
-            stock_on_total = accuracy_score(dataDict[stock]['y'],
-                                            total_best_fit_cls.predict(temp_adata)) * 100
-            accuracyDict[stock]['total_best_fit_cls reduced fitted'] = stock_on_total
-            print("%s on total_best_fit_cls with reduced adata:  %f" % (stock, stock_on_total))
-
-    for stock in accuracyDict.keys():
-        sorted_accuracies = sorted(accuracyDict[stock].items(), key=lambda kv: kv[1], reverse=True)
-        print(stock)
-        for i in sorted_accuracies:
-            print("%s:   %f"%(i[0], i[1]))
-
-    #TODO endof fitted adata
-
+    total_best_fit_sv = reducedDimResults[0]['sv']
 
 
     print("Using None for rs in articlSVM!!!!!!")
+
+    #
+    # print(dataDict["PYPL"]['sv'].predict_proba(dataDict['PYPL']['adata_new'][-2:-1]))
+    # print(dataDict['PYPL']['y'][-2:])
+    #
+    # #temp_adata = pd.DataFrame(columns=reducedDimResults[-1]['adata'].columns).merge(dataDict['PYPL']['adata'],how='left')
+    #
+    # for i in dataDict:
+    #     temp_adata = pd.DataFrame(columns=reducedDimResults[2]['adata_new'].columns)
+    #     temp_adata = temp_adata.append(dataDict[i]['adata'], ignore_index=True, sort=False)
+    #     for i in temp_adata.columns:
+    #         if i not in reducedDimResults[2]['adata_new'].columns:
+    #             temp_adata = temp_adata.drop(columns=i)
+    #     temp_adata = temp_adata.fillna(0)
+    #
+    #     print(accuracy_score(dataDict[i]['y'], reducedDimResults[2]['sv'].predict(temp_adata))*100)
+
 
 
 
@@ -214,9 +210,29 @@ def getArticles(priceData, dailyData, stocks):
     #TODO Dimensionality Reduction
 
     # TODO return_estimator
-
-
-    return
+    modelsDict={}
+    modelsColsDict={}
+    for stock in dataDict:
+        modelsDict[stock]=dataDict[stock]['sv']
+        pickle.dump(dataDict[stock]['sv'], open('models/'+stock+'.pkl','wb'))
+        if 'adata_new' in dataDict[stock].keys():
+            modelsColsDict[stock]= dataDict[stock]['adata_new'].columns.values.tolist()
+            print('%s adata_new' % stock)
+            print (modelsColsDict[stock])
+        else:
+            modelsColsDict[stock]= dataDict[stock]['adata'].columns.values.tolist()
+            print('%s adata' % stock)
+            print(modelsColsDict[stock])
+    modelsDict['overall'] = total_best_fit_sv
+    modelsColsDict['overall'] = total_best_fit_adata.columns.values.tolist()
+    #print (modelsColsDict)
+    with open('models/modelsCols.json','w+') as f:
+        json.dump(modelsColsDict, f, separators=(',', ':'))
+    pickle.dump(total_best_fit_sv, open('models/overall.pkl', 'wb'))
+    
+    
+    
+    return modelsDict, modelsColsDict
 
 def dimReducer(adata, y, multiThread=False):
     """
@@ -245,13 +261,16 @@ def dimReducer(adata, y, multiThread=False):
 
 def dimReducerChild(fargs):
     adata = fargs[0]
+    print(adata.columns.values)
     y = fargs[1]
     select = fargs[2]
     classm = fargs[3]
-    additionalParams={'k_best':200, 'percentile':10, 'fpr':0.005, 'fdr':0.005, 'fwe':0.005}
-    adata_new = GenericUnivariateSelect(score_func=eval(classm), mode=select, param=additionalParams[select]).fit_transform(adata, y)
+    additionalParams={'k_best':200, 'percentile':10, 'fpr':0.0005, 'fdr':0.005, 'fwe':0.005}
+    selector = GenericUnivariateSelect(score_func=eval(classm), mode=select, param=additionalParams[select])
+    adata_new = selector.fit_transform(adata, y)
+    cols = selector.get_support(True)
     accuracies = articleSVM(adata_new,y,select + " " + classm)
-    accuracies['adata_new']=pd.DataFrame(data=adata_new)
+    accuracies['adata_new']=adata[cols]
     return accuracies
 
 
@@ -487,7 +506,7 @@ def parseArticles(fargs):
     allwords = list(countedAllWords.keys())
 
     # Matrix. Rows=days, Cols=words mentioned
-    adata = []
+    adata = pd.DataFrame(columns=allwords)
 
     # -1,0,1 representing changes in price
     y = []
@@ -529,17 +548,22 @@ def parseArticles(fargs):
             articles = temp_article
         else:
             articles = articles[0]
+        #TODO: Change adata such that it's always a DataFrame
+        tempToDict = {}
+        for i in articles:
+            tempToDict[i] = [articles[i]]
         for day in range(0, len(dayDiff)):
-            arow = []
-            for word in allwords:
-                if word in articles.keys():
-                    arow.append(articles[word])
-                else:
-                    arow.append(0)
-            adata.append(arow)
+            
+            arow = pd.DataFrame.from_dict(data=tempToDict, orient='columns')
+          #  arow = []
+          #  for word in allwords:
+          #      if word in articles.keys():
+          #          arow.append(articles[word])
+          #      else:
+          #          arow.append(0)
+            adata = adata.append(arow, ignore_index=False, sort=False).fillna(0)
             y.append(dayDiff[day])
 
-    adata = pd.DataFrame(np.array(adata), columns=allwords)
     y = np.array(y)
 
     # Return if all outputs are the same
@@ -570,17 +594,16 @@ def parseArticles(fargs):
     print("%s:  %f  %f" % (accuracies['name'], accuracies['train'], accuracies['test']))
 
     ret = {'adata':adata, 'y':y, 'countedAllWords':countedAllWords, 'name':stockName,
-                'accuracy':accuracies['test'], 'cls':accuracies['cls']}
+                'accuracy':accuracies['test'], 'cls':accuracies['cls'], 'sv':accuracies['sv']}
 
     if 'adata_new' in accuracies:
         #Add the reduced adata to return
-        if type(accuracies['adata_new']) == np.ndarray:
-            ret['adata_new'] = pd.DataFrame(data=accuracies['adata_new'])
-        else:
-            ret['adata_new'] = accuracies['adata_new']
+        #if type(accuracies['adata_new']) == np.ndarray:
+        ret['adata_new'] = accuracies['adata_new']
+     #   else:
+      #      ret['adata_new'] = accuracies['adata_new']
 
     return ret
-
 
 def articleSVM(X,y, name):
     """
@@ -608,5 +631,5 @@ def articleSVM(X,y, name):
 
     accuracy_test = accuracy_score(y_test, cls.predict(X_test))
 
-    accuracies = {'name':name, 'train':accuracy_train * 100, 'test':accuracy_test * 100, 'cls': cls}
+    accuracies = {'name':name, 'train':accuracy_train * 100, 'test':accuracy_test * 100, 'sv':sv, 'cls': cls}
     return accuracies

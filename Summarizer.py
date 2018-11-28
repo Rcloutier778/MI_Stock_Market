@@ -12,6 +12,8 @@ from string import punctuation
 from nltk.probability import FreqDist
 from heapq import nlargest
 from collections import defaultdict
+import warnings
+warnings.filterwarnings(action='ignore', category=UserWarning, module='gensim')
 from gensim.summarization import keywords
 
 def getSummary(inputContent):
