@@ -13,33 +13,34 @@ from nltk.probability import FreqDist
 from heapq import nlargest
 from collections import defaultdict
 import warnings
+
 warnings.filterwarnings(action='ignore', category=UserWarning, module='gensim')
 from gensim.summarization import keywords
 
+
 def getSummary(inputContent):
-    """ Drive the process from argument to output """ 
-
+    """ Drive the process from argument to output """
+    
     content = sanitize_input(inputContent)
-
-    sentence_tokens, word_tokens = tokenize_content(content)  
+    
+    sentence_tokens, word_tokens = tokenize_content(content)
     sentence_ranks = score_tokens(word_tokens, sentence_tokens)
     summary = summarize(sentence_ranks, sentence_tokens)
     return summary
-    
+
+
 def getKeywords(text):
     """
     Get keywords of text with the count of the number of times they appear
     """
-    #TODO Add plural stripping (convert plural words to singular to help reduce number of dimensions)
-    kwordsCount={}
+    # TODO Add plural stripping (convert plural words to singular to help reduce number of dimensions)
+    kwordsCount = {}
     kwords = keywords(text).strip().split('\n')
     for word in kwords:
-        kwordsCount[word]=text.count(word)
+        kwordsCount[word] = text.count(word)
     return kwordsCount
-    
-    
-    
-    
+
+
 def sanitize_input(data):
     """ 
     Currently just a whitespace remover. More thought will have to be given with how 
@@ -47,13 +48,14 @@ def sanitize_input(data):
     parsed
     """
     replace = {
-        ord('\f') : ' ',
-        ord('\t') : ' ',
-        ord('\n') : ' ',
-        ord('\r') : None
+        ord('\f'): ' ',
+        ord('\t'): ' ',
+        ord('\n'): ' ',
+        ord('\r'): None
     }
-
+    
     return data.translate(replace)
+
 
 def tokenize_content(content):
     """
@@ -66,8 +68,9 @@ def tokenize_content(content):
     
     return [
         sent_tokenize(content),
-        [word for word in words if word not in stop_words]    
+        [word for word in words if word not in stop_words]
     ]
+
 
 def score_tokens(filterd_words, sentence_tokens):
     """
@@ -75,15 +78,16 @@ def score_tokens(filterd_words, sentence_tokens):
     uses this to produce a map of each sentence and its total score
     """
     word_freq = FreqDist(filterd_words)
-
+    
     ranking = defaultdict(int)
-
+    
     for i, sentence in enumerate(sentence_tokens):
         for word in word_tokenize(sentence.lower()):
             if word in word_freq:
                 ranking[i] += word_freq[word]
-
+    
     return ranking
+
 
 def summarize(ranks, sentences):
     """
@@ -91,8 +95,7 @@ def summarize(ranks, sentences):
     the highest ranking sentences in order after converting from
     array to string.  
     """
-
-
+    
     indexes = nlargest(len(sentences), ranks, key=ranks.get)
     final_sentences = [sentences[j] for j in sorted(indexes)]
-    return ' '.join(final_sentences) 
+    return ' '.join(final_sentences)
