@@ -1,0 +1,4 @@
+                      Method    Diff  percent  Train  Test  STD_tr  STD_te  Time_tr  Time_te
+        tanh adam invscaling:  0.634  1.23  51.53   52.16    2.32    2.83    2.99  2.98
+          tanh adam adaptive:  0.753  1.46  51.71   52.47    3.37    3.47    2.91  3.19
+          relu adam constant:  1.159  2.27  51.13   52.28    2.21    2.22    2.74  4.11

@@ -3,6 +3,9 @@ from multiprocessing import Pool
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 import matplotlib.cbook
+warnings.filterwarnings("ignore", category=DeprecationWarning)
+warnings.filterwarnings("ignore",category=matplotlib.MatplotlibDeprecationWarning)
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
 
 warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
 from datetime import datetime, timedelta, date
@@ -43,6 +46,7 @@ pd.options.mode.chained_assignment = None
 refreshArticles = False  # Wipe data and start again
 updateArticles = False  # Update current data
 refreshModels = False
+cutoff = False
 
 numPages = 100  # Number of pages of articles to use
 minAccuracy = 30  # Minimum accuracy
@@ -80,19 +84,16 @@ def getArticles(priceData, dailyData, stocks):
     articles = ripArticles(stocks)
     newDailyData = {}
     for stock in modelsDict.keys():
+        if stock == 'overall':  # TODO
+            continue
         newDailyData[stock] = copy.deepcopy(dailyData[stock])
         # Get stocks that have models
         model = modelsDict[stock]
         model_probability = []
         model_probability_dates = []
-        if stock == 'overall':  # TODO
-            continue
+        
         articleDict = articles[stocks[stock]][0]
-        startDate = datetime.strptime(dailyData[stock].index[0], "%Y-%m-%d")
-        startDate = date(startDate.year, startDate.month, startDate.day)
-        endDate = datetime.strptime(dailyData[stock].index[-1], "%Y-%m-%d")
-        endDate = date(endDate.year, endDate.month, endDate.day)
-        model_adata = pd.DataFrame(columns=modelsColsDict[stock])
+        model_adata = pd.DataFrame(columns=modelsColsDict[stock]).fillna(0)
         
         for articleDate in articleDict.keys():
             # Get articles for those stocks
@@ -110,44 +111,46 @@ def getArticles(priceData, dailyData, stocks):
                 for i in article:
                     temparticle[i] = [article[i]]
                 for day in days:
-                    if startDate <= day <= endDate:
-                        day_df = pd.DataFrame(pd.DataFrame.from_dict(temparticle, orient='columns'), index=[day])
-                        try:
-                            model_adata = model_adata.append(day_df, ignore_index=False, sort=False,
-                                                             verify_integrity=True).fillna(0)
-                            model_probability_dates.append(day)
-                        except:
-                            model_adata = model_adata.add(day_df, fill_value=0)
-            
+                    if day.strftime("%Y-%m-%d") in newDailyData[stock].index.values:
+                        day_df = pd.DataFrame.from_dict(temparticle, orient='columns').rename(index={0:day.strftime("%Y-%m-%d")})
+                    
+                        if day.strftime("%Y-%m-%d") in model_adata.index.values:
+                            model_adata = model_adata.add(day_df, fill_value=0.0)
+                        else:
+                            model_adata = model_adata.append(day_df, ignore_index=False, sort=False, verify_integrity=True).fillna(0)
+                            
+                            
+                            
             # Convert adata to modelColsDict DataFrame columns
-            model_adata = model_adata[modelsColsDict[stock]]
-        model_probability = model.predict_proba(model_adata)
+            model_adata = model_adata[modelsColsDict[stock]].fillna(0) #Removes columns not in modelsColsDict[stock]
+
+        #Remove rows that are all zero
+        model_adata = model_adata[(model_adata.T != 0).any()]
+        model_probability_dates = model_adata.index.values
         
+        model_probability = model.predict_proba(model_adata)
+    
         model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates,
                                             columns=['Down', 'Up'])
-        newDailyData[stock]['Down'] = model_probability_df['Down']
-        # newDailyData[stock]['Zero'] = model_probability_df['Zero']
-        newDailyData[stock]['Up'] = model_probability_df['Up']
-        
-        # model_probability_df = pd.DataFrame(data=model_probability, index=model_probability_dates,
-        #                                    columns=['news'])
-        
-        # newDailyData[stock].loc[:, ('news')] = model_probability_df['news']
-        # newDailyData[stock].loc[:, ('Zero')] = model_probability_df['Zero']
-        newDailyData[stock].loc[:, 'Down'] = model_probability_df['Down']
-        newDailyData[stock].loc[:, 'Up'] = model_probability_df['Up']
-        
+
+        for d in model_probability_dates:
+            if d in newDailyData[stock].index.values:
+                newDailyData[stock].loc[d,'Down'] = model_probability_df.loc[d,'Down']
+                newDailyData[stock].loc[d, 'Up'] = model_probability_df.loc[d, 'Up']
         newDailyData[stock] = newDailyData[stock].fillna(0)
-        firstArticleDate = sorted(articleDict.keys(), key=lambda kv: kv)[0]
-        # print(newDailyData[stock])
-        try:
-            articleIndex = newDailyData[stock].index.get_loc(firstArticleDate)
-            # print(articleIndex)
-            newIndexes = newDailyData[stock].index.values[articleIndex]
-            # print(newIndexes)
-            newDailyData[stock] = newDailyData[stock].loc[newIndexes:]
-        except:
-            pass
+        if cutoff:
+            firstArticleDate = sorted(articleDict.keys(), key=lambda kv: kv)[0]
+            # print(newDailyData[stock])
+            try:
+                articleIndex = newDailyData[stock].index.get_loc(firstArticleDate)
+                # print(articleIndex)
+                newIndexes = newDailyData[stock].index.values[articleIndex]
+                # print(newIndexes)
+                newDailyData[stock] = newDailyData[stock].loc[newIndexes:]
+            except:
+                pass
+        if cutoff:
+            print("Cutting off dailyData")
     return newDailyData
 
 
@@ -190,12 +193,12 @@ def getArticleModels(priceData, dailyData, stocks):
     ovAC = []
     print("Skipping overall accuracy measurments for testing ")
     if True:
-        print(len(countedAllWords))
-        print(adata.shape)
+        #print(len(countedAllWords))
+        #print(adata.shape)
         
         # SVM with all words
         accuracies = articleSVM(adata, y, 'Overall Accuracies')
-        print("%s:  %f  %f" % (accuracies['name'], accuracies['train'], accuracies['test']))
+        #print("%s:  %f  %f" % (accuracies['name'], accuracies['train'], accuracies['test']))
     
     # Most common reoccuring words
     sorted_keys_by_values = sorted(countedAllWords.keys(), key=lambda kv: countedAllWords[kv], reverse=True)
@@ -205,7 +208,7 @@ def getArticleModels(priceData, dailyData, stocks):
     chopped_adata = adata[chopped_keys]
     # SVM with most common words
     chopped_accuracies = articleSVM(chopped_adata, y, 'Chopped Overall Accuracies')
-    print("%s:  %f  %f" % (chopped_accuracies['name'], chopped_accuracies['train'], chopped_accuracies['test']))
+    #print("%s:  %f  %f" % (chopped_accuracies['name'], chopped_accuracies['train'], chopped_accuracies['test']))
     
     reducedDimResults = dimReducer(adata, y, multiThread=True)
     reducedDimResults.append(chopped_accuracies)
@@ -247,6 +250,7 @@ def dimReducer(adata, y, multiThread=False):
     Multi-threaded
     :param adata:
     :param y:
+    :param multiThread: Prevent child threads from spawning child threads in parseargs
     :return:
     """
     selections = ['k_best', 'fpr', 'fdr', 'fwe', 'percentile']

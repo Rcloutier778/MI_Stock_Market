@@ -1,6 +1,5 @@
 from multiprocessing import Pool
 
-import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 
 # Machine learning classification libraries
@@ -17,7 +16,6 @@ import pandas as pd
 import numpy as np
 
 # To plot
-import matplotlib.pyplot as plt
 import seaborn
 
 # To fetch data
@@ -43,9 +41,16 @@ import copy
 import warnings
 import statistics
 warnings.filterwarnings("ignore", category=DeprecationWarning)
-import matplotlib.cbook
-
+warnings.filterwarnings("ignore",category=matplotlib.MatplotlibDeprecationWarning)
 warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import matplotlib.cbook
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import matplotlib.pyplot as plt
+warnings.filterwarnings("ignore",category=matplotlib.MatplotlibDeprecationWarning)
+warnings.filterwarnings("ignore", category=matplotlib.cbook.mplDeprecation)
+import statistics
+
+
 #warnings.filterwarnings("ignore", category=pd.DataFrame.SettingWithCopyWarning)
 pd.options.mode.chained_assignment = None
 # Get historical stock data and predict off that
@@ -96,13 +101,7 @@ graphPlots = False
 matlab = False
 startAfterCrash = True
 
-
 def main():
-    
-    import converter
-    converter.main()
-    return
-    
     pd.options.mode.chained_assignment = None
     # From the data intervals, concat the following together to use
     if refreshData:
@@ -129,15 +128,17 @@ def main():
     
     # Get news article data and integrate it with daily data
     newDailyData = getArticles(priceData, dailyData, stocks)
-    
+
+    #with pd.option_context('display.max_rows', None, 'display.max_columns', None):
+    #    print(newDailyData['GOOGL'])
     
     dailyDataWithArticles={}
-    dailyDataNoArticles={}
+    #dailyDataNoArticles={}
     
     for stock in dailyData:
         if stock in newDailyData:
             dailyDataWithArticles[stock] = copy.deepcopy(newDailyData[stock])
-            dailyDataNoArticles[stock] = copy.deepcopy(dailyData[stock])
+           # dailyDataNoArticles[stock] = copy.deepcopy(dailyData[stock])
             
 
     # Intraday data prediction
@@ -145,61 +146,80 @@ def main():
     
     # Daily data prediction
     print("Daily - SVM")
-    trainSVC(dailyDataWithArticles)
+    dailyDataWithArticles = trainSVC(dailyDataWithArticles,False)
     
     # Daily data prediction with news articles
     print("Daily w/ news- SVM")
-    trainSVC(dailyDataWithArticles)
+    dailyDataWithArticles = trainSVC(dailyDataWithArticles,True)
 
     print("\n###Daily - NNet")
-    neuralNet(dailyDataWithArticles)
-    
-    print("\n###Daily w/ news - NNet")
-    neuralNet(dailyDataWithArticles)
+    dailyDataWithArticles = neuralNet(dailyDataWithArticles,False)
 
+    print("\n###Daily w/ news - NNet")
+    dailyDataWithArticles = neuralNet(dailyDataWithArticles,True)
+
+    if graphPlots:
+        plotGraphs(dailyDataWithArticles)
     
     return 0
 
 
-def trainSVC(priceData):
+def plotGraphs(dailyData):
+    print("Plotting graphs")
+    for ndata in dailyData:
+        plt.figure(ndata, figsize=(12, 7))
+        data = dailyData[ndata]
+        data.cum_ret.plot(color='r', label='Returns')
+        data.svm_cum_strat_ret_wo.plot(color='g', label='SVM Strategy Returns w/o', linestyle='dashed')
+        data.svm_cum_strat_ret_w.plot(color='b', label='SVM Strategy Returns w', linestyle='dashed')
+        data.nnet_cum_strat_ret_wo.plot(color='y', label='NNet Strategy Returns w/o', linestyle='dashed')
+        data.nnet_cum_strat_ret_w.plot(color='k', label='NNet Strategy Returns w', linestyle='dashed')
+        plt.title(ndata)
+        plt.legend(['Returns', 'SVM Strategy w/o','SVM Strategy w','NNet w/o','NNet w'])
+        plt.grid(True)
+        plt.show(block=False)
+
+    plt.pause(0.001)
+    plt.waitforbuttonpress()
+    return
+
+
+def trainSVC(priceData,withArticles):
     """
     Parent SVC function
     :param priceData:
     :return:
     """
+
+    #cgs=[[1.0,'auto']]
+    #cgs=[[20.0, 200000.0], [2000.0, 200000.0], [2000.0, 0.002], [0.2, 20.0], [20.0, 20.0], [0.2, 0.2], [200000.0, 0.002], [2000.0, 0.2], [20.0, 0.2]]
+    t0=time.time()
     accuracies = []
     pool = Pool()
     fargs = []
-    
     for ndata in priceData:
-        fargs.append([ndata, priceData])
+        fargs.append([ndata, priceData, withArticles,20.0,20.0])
     results = pool.map(trainSCVchild, fargs)
     pool.close()
     pool.join()
-    newPriceData = {}
+    t1=time.time()
+    
     for i in results:
         accuracies.append(i[0])
-        newPriceData[i[0][0]] = i[1]
-    
+        priceData[i[0][0]]['cum_ret'] = i[1]['cum_ret']
+        if withArticles:
+            priceData[i[0][0]]['svm_cum_strat_ret_w'] = i[1]['cum_strat_ret']
+        else:
+            priceData[i[0][0]]['svm_cum_strat_ret_wo'] = i[1]['cum_strat_ret']
+
     accuracies = sorted(accuracies, key=lambda so: so[2])
     print('Avg test accuracy:', sum(i[2] for i in accuracies) / len(accuracies))
+    print("Time: ", t1 - t0)
     for acc in accuracies:
         print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
-        if graphPlots:
-            plt.figure(acc[0], figsize=(10, 5))
-            data = newPriceData[acc[0]]
-            data.cum_ret.plot(color='r', label='Returns')
-            data.cum_strat_ret.plot(color='g', label='Strategy Returns')
-            plt.title(acc[0])
-            plt.legend(['Returns', 'Strategy'])
-            plt.grid(True)
-            plt.show(block=False)
-    
     print()
-    if graphPlots:
-        plt.pause(0.001)
-        plt.waitforbuttonpress()
-    return accuracies
+
+    return priceData
 
 
 def trainSCVchild(d):
@@ -210,6 +230,9 @@ def trainSCVchild(d):
     """
     ndata = d[0]
     priceData = d[1]
+    withArticles=d[2]
+    c=d[3]
+    g=d[4]
     data = priceData[ndata]
     
     # Calculating future price bool difference
@@ -219,17 +242,10 @@ def trainSCVchild(d):
     data['High-Low'] = data.High - data.Low
     X = data[['Open-Close', 'High-Low']]
     class_weights=None
-    if 'Down' in data.columns:
+    if withArticles:
         X.loc[:, 'Down'] = data.loc[:, 'Down']
         X.loc[:, 'Up'] = data.loc[:, 'Up']
-        
-        # X.loc[:,('Down')] = np.array(data.loc[:,('Down')].shift(-1))
-        # X.loc[:, ('Down')] = X.loc[:,('Down')].fillna(0)
-        # X.loc[:,('Up')] = np.array(data.loc[:,('Up')].shift(-1))
-        # X.loc[:, ('Up')] = X.loc[:,('Up')].fillna(0)
-        #class_weights = {'Up': 2, 'Down': 2}
     
-    #TODO StandardScalar for feature scaling?
     split = int(split_percentage * len(data))
     
     # Train data set
@@ -241,7 +257,7 @@ def trainSCVchild(d):
     y_test = y[split:]
     # TODO change tol, manually set gamma and range, range C, ovo vs ovr
     
-    sv = SVC(C=1.0, kernel='rbf', degree=3, gamma='auto', coef0=0.0, shrinking=True, \
+    sv = SVC(C=c, kernel='rbf', degree=3, gamma=g, coef0=0.0, shrinking=True, \
              probability=True, cache_size=200, class_weight=class_weights, max_iter=-1, \
              decision_function_shape='ovr', random_state=None, tol=0.0000001)
     cls = sv.fit(X_train, y_train)
@@ -249,7 +265,7 @@ def trainSCVchild(d):
     accuracy_train = accuracy_score(y_train, cls.predict(X_train))
     
     accuracy_test = accuracy_score(y_test, cls.predict(X_test))
-    
+
     data['Predicted_Signal'] = cls.predict(X)
     
     # Calculate log returns
@@ -259,59 +275,54 @@ def trainSCVchild(d):
     data.loc[:, 'Strategy_Return'] = data.loc[:, 'Predicted_Signal'] * data.loc[:, 'Return']
     data.loc[:, 'cum_strat_ret'] = data[split:]['Strategy_Return'].cumsum()
     
-    std = data.cum_strat_ret.std()
-    Sharpe = (data.cum_strat_ret - data.cum_ret) / std
+    std = data['cum_strat_ret'].std()
+    Sharpe = (data['cum_strat_ret'] - data['cum_ret']) / std
     Sharpe = Sharpe.mean()
     
     accuracies = [ndata, accuracy_train * 100, accuracy_test * 100, Sharpe]
     
-    if graphPlots:
-        return accuracies, data
-    else:
-        return accuracies, 0
+
+    return accuracies, data
 
 
-def neuralNet(priceData):
+def neuralNet(priceData, withArticles):
     activation = ['identity', 'logistic', 'tanh', 'relu']
     solver = ['lbfgs', 'sgd', 'adam']
     learning_rate = ['constant', 'invscaling', 'adaptive']
     
-    for act in activation:
-        for sol in solver:
-            for lr in learning_rate:
-                print("%s  %s  %s" % (act, sol, lr))
-                fargs = []
-                accuracies = []
-                pool = Pool()
-                for ndata in priceData:
-                    fargs.append([ndata, priceData, act, sol, lr])
-                results = pool.map(nnetChild, fargs)
-                pool.close()
-                pool.join()
-                newPriceData = {}
-                for i in results:
-                    accuracies.append(i[0])
-                    newPriceData[i[0][0]] = i[1]
-                
-                accuracies = sorted(accuracies, key=lambda so: so[2])
-                print('Avg test accuracy:', sum(i[2] for i in accuracies) / len(accuracies))
-                for acc in accuracies:
-                    print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
-                    if graphPlots:
-                        plt.figure(acc[0], figsize=(10, 5))
-                        data = newPriceData[acc[0]]
-                        data.cum_ret.plot(color='r', label='Returns')
-                        data.cum_strat_ret.plot(color='g', label='Strategy Returns')
-                        plt.title(acc[0])
-                        plt.legend(['Returns', 'Strategy'])
-                        plt.grid(True)
-                        plt.show(block=False)
-                
-                print()
-                if graphPlots:
-                    plt.pause(0.001)
-                    plt.waitforbuttonpress()
-    return accuracies
+
+    #adam was best
+    #no identity or sigmoid
+    t0=time.time()
+    fargs = []
+    accuracies = []
+    pool = Pool()
+    for ndata in priceData:
+        fargs.append([ndata, priceData, 'relu', 'adam', 'constant', withArticles])
+    results = pool.map(nnetChild, fargs)
+    pool.close()
+    pool.join()
+    for i in results:
+        accuracies.append(i[0])
+        if withArticles:
+            priceData[i[0][0]]['nnet_cum_strat_ret_w'] = i[1]['cum_strat_ret']
+        else:
+            priceData[i[0][0]]['nnet_cum_strat_ret_wo'] = i[1]['cum_strat_ret']
+
+    accuracies = sorted(accuracies, key=lambda so: so[2])
+    print('Avg test accuracy:', sum(i[2] for i in accuracies) / len(accuracies))
+
+    std = []
+    for i in accuracies:
+        std.append(i[2])
+    print(statistics.stdev(std))
+    t1=time.time()
+    print(t1-t0)
+    for acc in accuracies:
+        print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
+
+    print()
+    return priceData
 
 def nnetChild(fargs):
     ndata = fargs[0]
@@ -319,6 +330,7 @@ def nnetChild(fargs):
     activation = fargs[2]
     solver = fargs[3]
     learning_rate = fargs[4]
+    withArticles = fargs[5]
     data = priceData[ndata]
     
     # Calculating future price bool difference
@@ -327,7 +339,7 @@ def nnetChild(fargs):
     data['Open-Close'] = data.Open - data.Close
     data['High-Low'] = data.High - data.Low
     X = data[['Open-Close', 'High-Low']]
-    if 'Down' in data.columns:
+    if withArticles:
         X.loc[:, 'Down'] = data.loc[:, 'Down']
         X.loc[:, 'Up'] = data.loc[:, 'Up']
 
@@ -342,7 +354,10 @@ def nnetChild(fargs):
     X_test = X[split:]
     y_test = y[split:]
     
-    mlp = MLPClassifier(hidden_layer_sizes=(100,), activation=activation, solver=solver, alpha=0.0001, batch_size='auto',learning_rate=learning_rate,power_t=0.5, max_iter=2000, shuffle=True, random_state=None, tol=0.000001, momentum=0.9, nesterovs_momentum=True, beta_1=0.9, beta_2=0.999, epsilon=1e-8, n_iter_no_change=10, early_stopping=True)
+    mlp = MLPClassifier(hidden_layer_sizes=(100,), activation=activation, solver=solver, alpha=0.0001, batch_size='auto'
+                        ,learning_rate=learning_rate,power_t=0.5, max_iter=2000, shuffle=True, random_state=None,
+                        tol=0.000001, momentum=0.9, nesterovs_momentum=True, beta_1=0.9, beta_2=0.999, epsilon=1e-8,
+                        n_iter_no_change=10, early_stopping=True)
     cls = mlp.fit(X_train, y_train)
     
     accuracy_train = accuracy_score(y_train, cls.predict(X_train))
@@ -358,16 +373,14 @@ def nnetChild(fargs):
     data.loc[:, 'Strategy_Return'] = data.loc[:, 'Predicted_Signal'] * data.loc[:, 'Return']
     data.loc[:, 'cum_strat_ret'] = data[split:]['Strategy_Return'].cumsum()
     
-    std = data.cum_strat_ret.std()
-    Sharpe = (data.cum_strat_ret - data.cum_ret) / std
+    std = data['cum_strat_ret'].std()
+    Sharpe = (data['cum_strat_ret'] - data['cum_ret']) / std
     Sharpe = Sharpe.mean()
     
     accuracies = [ndata, accuracy_train * 100, accuracy_test * 100, Sharpe]
     
-    if graphPlots:
-        return accuracies, data
-    else:
-        return accuracies, 0
+    return accuracies, data
+  
 
 
 
