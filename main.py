@@ -97,7 +97,7 @@ split_percentage = 0.8
 refreshData = False
 
 # Graphs plots
-graphPlots = False
+graphPlots = True
 matlab = False
 startAfterCrash = True
 
@@ -148,14 +148,14 @@ def main():
     print("Daily - SVM")
     dailyDataWithArticles = trainSVC(dailyDataWithArticles,False)
     
-    # Daily data prediction with news articles
-    print("Daily w/ news- SVM")
-    dailyDataWithArticles = trainSVC(dailyDataWithArticles,True)
-
-    print("\n###Daily - NNet")
+    print("\nDaily - NNet")
     dailyDataWithArticles = neuralNet(dailyDataWithArticles,False)
 
-    print("\n###Daily w/ news - NNet")
+    # Daily data prediction with news articles
+    print("\nDaily w/ news- SVM")
+    dailyDataWithArticles = trainSVC(dailyDataWithArticles, True)
+
+    print("\nDaily w/ news - NNet")
     dailyDataWithArticles = neuralNet(dailyDataWithArticles,True)
 
     if graphPlots:
@@ -170,12 +170,15 @@ def plotGraphs(dailyData):
         plt.figure(ndata, figsize=(12, 7))
         data = dailyData[ndata]
         data.cum_ret.plot(color='r', label='Returns')
-        data.svm_cum_strat_ret_wo.plot(color='g', label='SVM Strategy Returns w/o', linestyle='dashed')
-        data.svm_cum_strat_ret_w.plot(color='b', label='SVM Strategy Returns w', linestyle='dashed')
-        data.nnet_cum_strat_ret_wo.plot(color='y', label='NNet Strategy Returns w/o', linestyle='dashed')
-        data.nnet_cum_strat_ret_w.plot(color='k', label='NNet Strategy Returns w', linestyle='dashed')
+        data.svm_cum_strat_ret_wo.plot(color='g', label='SVM Strategy Returns w/o')#, linestyle='dashed')
+        data.nnet_cum_strat_ret_wo.plot(color='y', label='NNet Strategy Returns w/o')  # , linestyle='dashed')
+        #data.svm_cum_strat_ret_w.plot(color='b', label='SVM Strategy Returns w', linestyle='dashed')
+        
+        #data.nnet_cum_strat_ret_w.plot(color='k', label='NNet Strategy Returns w', linestyle='dashed')
         plt.title(ndata)
-        plt.legend(['Returns', 'SVM Strategy w/o','SVM Strategy w','NNet w/o','NNet w'])
+        plt.xlabel("Dates")
+        plt.ylabel("Percentage Return")
+        plt.legend(['Returns', 'SVM Strategy','NNet','SVM Strategy w','NNet w'])
         plt.grid(True)
         plt.show(block=False)
 
@@ -216,7 +219,9 @@ def trainSVC(priceData,withArticles):
     print('Avg test accuracy:', sum(i[2] for i in accuracies) / len(accuracies))
     print("Time: ", t1 - t0)
     for acc in accuracies:
-        print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
+        print("%6s   %.4f   %.4f   %.3f" % (stocks[acc[0]] + ' ('+acc[0]+')', acc[1], acc[2], acc[3]))
+    #for acc in accuracies:
+    #    print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
     print()
 
     return priceData
@@ -259,7 +264,7 @@ def trainSCVchild(d):
     
     sv = SVC(C=c, kernel='rbf', degree=3, gamma=g, coef0=0.0, shrinking=True, \
              probability=True, cache_size=200, class_weight=class_weights, max_iter=-1, \
-             decision_function_shape='ovr', random_state=None, tol=0.0000001)
+             decision_function_shape='ovr', random_state=0, tol=0.0000001)
     cls = sv.fit(X_train, y_train)
     
     accuracy_train = accuracy_score(y_train, cls.predict(X_train))
@@ -319,7 +324,9 @@ def neuralNet(priceData, withArticles):
     t1=time.time()
     print(t1-t0)
     for acc in accuracies:
-        print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
+        print("%6s   %.4f   %.4f   %.3f" % (stocks[acc[0]] + ' ('+acc[0]+')', acc[1], acc[2], acc[3]))
+    #for acc in accuracies:
+    #    print("%6s   %.4f   %.4f   %.3f" % (acc[0], acc[1], acc[2], acc[3]))
 
     print()
     return priceData
@@ -355,7 +362,7 @@ def nnetChild(fargs):
     y_test = y[split:]
     
     mlp = MLPClassifier(hidden_layer_sizes=(100,), activation=activation, solver=solver, alpha=0.0001, batch_size='auto'
-                        ,learning_rate=learning_rate,power_t=0.5, max_iter=2000, shuffle=True, random_state=None,
+                        ,learning_rate=learning_rate,power_t=0.5, max_iter=2000, shuffle=True, random_state=0,
                         tol=0.000001, momentum=0.9, nesterovs_momentum=True, beta_1=0.9, beta_2=0.999, epsilon=1e-8,
                         n_iter_no_change=10, early_stopping=True)
     cls = mlp.fit(X_train, y_train)
