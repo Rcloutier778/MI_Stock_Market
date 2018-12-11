@@ -172,9 +172,9 @@ def plotGraphs(dailyData):
         data.cum_ret.plot(color='r', label='Returns')
         data.svm_cum_strat_ret_wo.plot(color='g', label='SVM Strategy Returns w/o')#, linestyle='dashed')
         data.nnet_cum_strat_ret_wo.plot(color='y', label='NNet Strategy Returns w/o')  # , linestyle='dashed')
-        data.svm_cum_strat_ret_w.plot(color='b', label='SVM Strategy Returns w', linestyle='dashed')
+        data.svm_cum_strat_ret_w.plot(color='b', label='SVM Strategy Returns w')#, linestyle='dashed')
         
-        data.nnet_cum_strat_ret_w.plot(color='k', label='NNet Strategy Returns w', linestyle='dashed')
+        data.nnet_cum_strat_ret_w.plot(color='k', label='NNet Strategy Returns w')#, linestyle='dashed')
         plt.title(ndata, fontsize=20)
         plt.xlabel("Dates", fontsize=20)
         plt.ylabel("Percentage Return", fontsize=20)
